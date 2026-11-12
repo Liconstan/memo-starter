@@ -123,6 +123,7 @@ This is where the kit becomes yours.
    - To give your own value, type it and press Return.
    - An **optional** question with no value: press Return to skip it. You can fill it in later.
    - You do not know the Tailscale answers yet. Skip those two; step 8 comes back to them.
+   - Setup does not ask the settings of the skills (your CRM, a program you run, your bookkeeping sheet, announcement channels). They are "fill in later": run `npm run setup -- --all` when you start to use a skill, or answer the agent when it asks you by memo.
 3. At its end, setup prints what it wrote, and a list named **Placeholders that are still in your files**. "REQUIRED" items must be answered: run `npm run setup` again. "Optional, skipped" items can wait.
 
 What setup did:

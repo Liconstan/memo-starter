@@ -109,7 +109,7 @@ export function ratingsOf(ratings, skill, hash = null) {
 
 // ---------- the day a skill was last named ----------
 // texts: the closed memos, [{ closed, text }], the text in small letters. The result: name -> the newest `closed` of a
-// memo that names the skill as a word of its own ("botec", not "botecs"; "sf-slack-post", not "my-sf-slack-post").
+// memo that names the skill as a word of its own ("botec", not "botecs"; "slack-post", not "my-slack-post").
 export function lastNamed(names, texts) {
   const out = new Map();
   const tests = names.filter((n) => NAME.test(n)).map((n) => [n, new RegExp(`(^|[^a-z0-9_-])${n}([^a-z0-9_-]|$)`)]);

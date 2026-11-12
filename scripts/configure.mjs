@@ -4,6 +4,7 @@
 // of the kit never change, your answers are kept, and a file that you or an agent changed is never overwritten.
 //
 //   npm run setup                 asks the questions (Return keeps the value in brackets)
+//   npm run setup -- --all        also asks the "fill in later" ones: the settings of the skills and templates
 //   npm run setup -- --defaults   asks nothing: the saved answers, then the defaults
 //   npm run setup -- --check      checks the kit itself: every placeholder is in variables.json, and VARIABLES.md is current
 //   npm run setup -- --docs       writes VARIABLES.md again from variables.json
@@ -143,16 +144,17 @@ export function variablesDoc() {
     '**How to read a placeholder.** A name in capitals in square brackets, for example `[YOUR_NAME]`, stands for a value that only you know. `npm run setup` asks you for each one and fills it in everywhere. You do not edit the files by hand.', '',
     '- **Required**: setup asks until it has a value (most have a default; press Return to take it).',
     '- **Optional**: press Return to skip it. The placeholder then stays in the files in capitals, setup lists it at its end, and an agent that meets it asks you once by memo.',
+    '- **Fill in later**: the settings of the skills and the vault templates (a CRM, a program, a channel, a bookkeeping sheet). Setup does not ask them, so the first setup stays short. Fill one in when you start to use its skill: `npm run setup -- --all`, or let the agent ask you by memo when it meets it.',
     '- Run `npm run setup` again at any time to change an answer.', '',
     'A second kind of marker is not a placeholder: words in curly brackets, for example `{Name}` or `{one line}` in the vault templates, are slots that the agents fill in for each person, meeting or project. Setup leaves them alone.', '',
-    `Count: ${VARIABLES.length} variables, ${VARIABLES.filter((v) => v.required && v.kind !== 'generated').length} required, ${VARIABLES.filter((v) => !v.required).length} optional, ${VARIABLES.filter((v) => v.kind === 'generated').length} made by setup.`, '',
+    `Count: ${VARIABLES.length} variables, ${VARIABLES.filter((v) => v.required && v.kind !== 'generated').length} required, ${VARIABLES.filter((v) => !v.required && !v.later).length} optional, ${VARIABLES.filter((v) => v.later).length} fill in later, ${VARIABLES.filter((v) => v.kind === 'generated').length} made by setup.`, '',
   ];
   for (const group of [...new Set(VARIABLES.map((v) => v.group))]) {
     lines.push(`## ${group}`, '', '| Placeholder | What it means | Example | Required | Default | Used in |', '|---|---|---|---|---|---|');
     for (const v of VARIABLES.filter((x) => x.group === group)) {
       const files = used.get(v.name) || [];
       const shown = files.map((f) => (f.startsWith(`..${sep}`) ? f.split(sep).slice(1).join('/') : f));
-      lines.push(`| \`[${v.name}]\` | ${cell(v.meaning)} | ${cell(v.example)} | ${v.kind === 'generated' ? 'made by setup' : v.required ? 'required' : 'optional'} | ${cell(v.defaultValue ?? v.default ?? 'none')} | ${shown.map((f) => `\`${f}\``).join(', ') || 'not used'} |`);
+      lines.push(`| \`[${v.name}]\` | ${cell(v.meaning)} | ${cell(v.example)} | ${v.kind === 'generated' ? 'made by setup' : v.required ? 'required' : v.later ? 'fill in later' : 'optional'} | ${cell(v.defaultValue ?? v.default ?? 'none')} | ${shown.map((f) => `\`${f}\``).join(', ') || 'not used'} |`);
     }
     lines.push('');
   }
@@ -175,7 +177,7 @@ function checkKit() {
 // ---------- the questions ----------
 async function ask(values, { defaults }) {
   const out = { ...values };
-  const toAsk = VARIABLES.filter((v) => v.kind !== 'generated');
+  const toAsk = VARIABLES.filter((v) => v.kind !== 'generated' && (!v.later || flag('all')));
   if (defaults) {
     for (const v of toAsk) {
       if (out[v.name] === undefined || out[v.name] === '') { const d = defaultOf(v, out); if (d !== undefined) out[v.name] = clean(v, String(d)); }
@@ -356,13 +358,15 @@ async function main() {
   // The last step: every placeholder that is still in a file of this installation.
   const left = leftovers(report.files);
   const required = [...left.keys()].filter((n) => byName.get(n)?.required);
-  const optional = [...left.keys()].filter((n) => byName.has(n) && !byName.get(n).required);
+  const optional = [...left.keys()].filter((n) => byName.has(n) && !byName.get(n).required && !byName.get(n).later);
+  const later = [...left.keys()].filter((n) => byName.has(n) && byName.get(n).later);
   const unknown = [...left.keys()].filter((n) => !byName.has(n));
   const show = (names) => { for (const n of names.sort()) { const where = left.get(n); console.log(`  [${n}]  ${where.slice(0, 3).join(', ')}${where.length > 3 ? `, and ${where.length - 3} more places` : ''}`); } };
   console.log('\nPlaceholders that are still in your files:');
   if (!left.size) console.log('  None. Every placeholder is filled in.');
   if (required.length) { console.log(`\n  REQUIRED, not filled in yet (${required.length}). Run npm run setup again and answer them:`); show(required); }
   if (optional.length) { console.log(`\n  Optional, skipped (${optional.length}). They stay in capitals; an agent that meets one asks you by memo. Run npm run setup again to fill one in:`); show(optional); }
+  if (later.length) console.log(`\n  Fill in later (${later.length}): the settings of the skills and templates. Fill one in when you use its skill, with npm run setup -- --all, or answer the agent when it asks: ${later.sort().map((n) => `[${n}]`).join(', ')}`);
   if (unknown.length) { console.log(`\n  Not in variables.json (${unknown.length}). Fill these in by hand in the file:`); show(unknown); }
   console.log(`\nNext: open ${tilde(join(out, 'README.md'))} (the README with your values filled in) and go on with step 6.`);
   if (flag('strict') && required.length) process.exit(1);

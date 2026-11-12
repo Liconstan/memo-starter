@@ -27,6 +27,8 @@ const ANSWERS = {
   WHERE_TO_SEND_FOLLOWUPS: 'a direct message', SLACK_CHANNEL_FOR_ANNOUNCEMENTS: '#announcements', SLACK_CHANNEL_FOR_TEAM_UPDATES: '#team-internal',
   SIGNED_DOCS_FOLDER: 'Agreements', BOOKING_LINK: 'https://cal.example.org/sam', NIGHTLY_SYNC_HOUR: '3', DAILY_REVIEW_HOUR: '8',
 };
+// Every other variable (the optional ones of the skills and templates) gets the example of the registry.
+for (const v of VARIABLES) if (v.kind !== 'generated' && !(v.name in ANSWERS)) ANSWERS[v.name] = v.example;
 const answersFile = (answers) => { const p = join(mkdtempSync(join(tmpdir(), 'kit-answers-')), 'answers.json'); writeFileSync(p, JSON.stringify(answers)); return p; };
 function files(dir) {
   const out = [];
