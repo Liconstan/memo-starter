@@ -8,14 +8,20 @@
 <!-- The theme of the last visit, before the first paint, so the page does not flash: light by day, dark by night
      (memo 1407, ui/theme.js keeps "<theme>|<until>" in memo-theme-now; 0 is no end). -->
 <script>try{var t=(localStorage.getItem('memo-theme-now')||'').split('|');if((t[0]==='light'||t[0]==='dark')&&(t[1]==='0'||Date.now()<Number(t[1])))document.documentElement.setAttribute('data-theme',t[0]);}catch(e){}</script>
+<!-- ADHD mode off (memo 1513, ui/filter.js): the class is there before the first paint, so the widgets do not flash. -->
+<script>try{if(localStorage.getItem('memo-adhd-mode')==='off')document.documentElement.classList.add('adhd-off');}catch(e){}</script>
+<!-- The minimal view (memo 1531, ui/filter.js): the widgets she picked for ADHD mode off, as classes mv-<key>, before the first paint. No choice yet: the top 3 memos. -->
+<script>try{var v=localStorage.getItem('memo-minimal-view');(v===null?'top3':v).split(',').forEach(function(k){if(/^[a-z0-9]+$/.test(k))document.documentElement.classList.add('mv-'+k);});}catch(e){document.documentElement.classList.add('mv-top3');}</script>
 <link rel="icon" href="/ui/icon.png">
 <link rel="apple-touch-icon" href="/ui/icon.png">
 <meta name="apple-mobile-web-app-title" content="Memo">
 </head>
+<!-- The class is for the phone layout of this page alone (memo 1423, the end of ui/common.css). -->
 <body>
-<div class="app">
+<div class="app inbox">
 <aside class="side">
   <a class="brand" href="/inbox"><img class="mark" src="/ui/icon.png" alt="" aria-hidden="true"><span><b>Memo</b><small>The queue of <span class="cap">__OWNER__</span></small></span></a>
+  <span class="side-date" id="side-date"></span>
   <nav class="side-nav" aria-label="Pages">
     <a class="nav on" href="/inbox" aria-current="page"><span class="ico ico-inbox" aria-hidden="true"></span>Inbox<span class="badge" id="nav-count" hidden></span></a>
     <a class="nav" href="/agents"><span class="ico ico-agents" aria-hidden="true"></span>Agents<span class="badge soft" id="nav-agents" hidden></span></a>
@@ -40,19 +46,28 @@
   </form>
   <!-- The memos, the agents and the calendar load now. A phone has no other way to load the page again without closing it. -->
   <button type="button" id="refresh" class="refresh" title="Load the memos and the agents again now">Refresh</button>
+  <!-- ADHD mode (memo 1513): on, the whole Inbox with all its widgets. Off, only the capture field, the three memos of
+       the highest priority, and this button. aria-pressed says the state; the small word shows it. -->
+  <button type="button" id="adhd-toggle" class="adhd-toggle" aria-pressed="true">ADHD mode<span class="adhd-state" aria-hidden="true">On</span></button>
 </header>
 <form id="token-form" hidden>
   <input name="token" type="text" placeholder="Token" autocomplete="off" spellcheck="false" data-1p-ignore data-lpignore="true" style="-webkit-text-security: disc" required aria-label="Token">
   <button>Save</button>
 </form>
 <p id="note" role="status" hidden></p>
+<!-- The time block (memo 1422): the clock is the largest thing, the date with its weekday is small and dim under it,
+     then the next meeting with the time until it, the Meeting brief before a meeting and the Follow-up after one
+     (ui/meeting.js, src/meeting.js). The panel under it holds the brief, or the follow-up draft she edits and sends. -->
 <section class="hero">
-  <div>
-    <p class="eyebrow" id="greeting">Hello,</p>
-    <h1 class="cap">__OWNER__</h1>
+  <!-- Side by side on a wide window (memo 1429): the clock and the date on the left, the next meeting on the right. -->
+  <div class="hero-time">
+    <h1 class="hero-hello"><span id="greeting">Hello,</span> <span class="cap">__OWNER__</span></h1>
+    <p class="hero-clock" id="hero-clock"></p>
+    <p class="hero-date" id="hero-date"></p>
   </div>
-  <div class="hero-date" id="hero-date"></div>
+  <div class="hero-next" id="hero-next" hidden></div>
 </section>
+<section class="card meeting-panel" id="meeting-panel" aria-live="polite" hidden></section>
 <!-- The agent strip: one small card per agent with its state, what it does now, its running helpers, and for a blocked
      agent the same answer buttons as the Agents page. On a phone each card is one line until tapped. -->
 <section class="agent-strip" id="agent-strip" aria-label="Agents"></section>
@@ -66,7 +81,7 @@
 <div class="columns">
   <div class="col-main">
     <section class="card queue-card">
-      <div class="card-head"><h2 id="queue-title">Memos</h2><span id="count"></span><nav class="tabs" id="filter" aria-label="Filter"></nav></div>
+      <div class="card-head"><h2 id="queue-title">Memos</h2><span id="count"></span><select class="view-select" id="view-select" aria-label="View"></select><nav class="tabs" id="filter" aria-label="Filter"></nav></div>
       <div class="thead" id="thead" hidden><span></span><span>Memo</span><span>Due</span><span>Impact / Effort</span></div>
       <main id="queue"></main>
       <div id="answered-list" hidden></div>
@@ -75,6 +90,11 @@
     </section>
   </div>
   <aside class="col-side">
+    <!-- The skill that the memo in view most likely needs, with its other suggestions (memo 1421; the data is that of
+         the skill trial, memo 1418). Hidden with no skill registry, and on the GitHub copy. -->
+    <section class="card dash-card" id="skill-suggest" aria-labelledby="h-suggest" hidden><div class="card-head"><h2 id="h-suggest"><span class="skill-star" aria-hidden="true">✦</span>Skill Suggestion</h2></div>
+      <div id="skill-suggest-body"></div>
+    </section>
     <section class="card today"><div class="card-head"><h2><button id="today-toggle" type="button" aria-expanded="true" aria-controls="today-body">Today</button></h2>
       <button type="button" class="cal-now-btn" id="cal-manage" aria-expanded="false" aria-controls="cal-setup" title="Add or remove a calendar" hidden>Calendars</button></div>
       <div id="today-body">
@@ -96,6 +116,12 @@
         <div class="cal-scroll" id="cal-scroll"><div class="cal-grid" id="cal-grid" role="group" aria-label="Events of the day"></div></div>
         <p class="visually-hidden" id="cal-list"></p>
       </div>
+    </section>
+    <!-- Six ways into the settings (memo 1421). One that is not built yet shows as off and says so. -->
+    <section class="card dash-card" id="quick-access" aria-labelledby="h-quick" hidden><div class="card-head"><h2 id="h-quick">Quick Access</h2></div>
+      <div id="quick-body"></div>
+      <!-- The settings of the minimal view (memo 1531): the Layout button opens them. A box for each widget. -->
+      <fieldset class="mv-set" id="minimal-settings" hidden></fieldset>
     </section>
     <section class="card keys"><div class="card-head"><h2><button id="keys-toggle" type="button" aria-expanded="true" aria-controls="keys-body">Keys</button></h2></div>
       <div id="keys-body">
@@ -153,12 +179,22 @@
 </div>
 <!-- The paperclip icon for attachments and file links. ui/markdown.js copies it (paperclip()). -->
 <template id="paperclip"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></template>
+<!-- The small pictures of the Skill Suggestion card and the Quick Access card. The page copies one by its name (icon()). -->
+<template id="dash-icons">
+  <svg data-i="skill" viewBox="0 0 24 24"><ellipse cx="12" cy="7" rx="7" ry="3"/><path d="M5 7v5c0 1.7 3.1 3 7 3s7-1.3 7-3V7M5 12v5c0 1.7 3.1 3 7 3s7-1.3 7-3v-5"/></svg>
+  <svg data-i="charters" viewBox="0 0 24 24"><circle cx="7" cy="9" r="1.6"/><circle cx="12" cy="6.5" r="1.6"/><circle cx="17" cy="9" r="1.6"/><path d="M8 16.5c0-2.2 1.8-4 4-4s4 1.8 4 4c0 1.4-1 2.3-2.2 2.3-.7 0-1.2-.4-1.8-.4s-1.1.4-1.8.4C9 18.8 8 17.9 8 16.5z"/></svg>
+  <svg data-i="routing" viewBox="0 0 24 24"><circle cx="7" cy="5" r="2"/><circle cx="7" cy="19" r="2"/><circle cx="17" cy="8" r="2"/><path d="M7 7v10M17 10c0 3-4 3-7 4"/></svg>
+  <svg data-i="skills" viewBox="0 0 24 24"><path d="m12 4 8 4-8 4-8-4zM4 12l8 4 8-4M4 16l8 4 8-4"/></svg>
+  <svg data-i="themes" viewBox="0 0 24 24"><path d="M12 4a8 8 0 1 0 0 16c1.2 0 1.6-.9 1.2-1.8-.5-1.1.2-2.2 1.5-2.2H17a3 3 0 0 0 3-3c0-5-3.6-9-8-9z"/><circle cx="8.5" cy="11" r=".9"/><circle cx="11.5" cy="8" r=".9"/><circle cx="15.5" cy="9.5" r=".9"/></svg>
+  <svg data-i="layout" viewBox="0 0 24 24"><rect x="4" y="5" width="7" height="14" rx="1.5"/><rect x="13" y="5" width="7" height="14" rx="1.5"/></svg>
+</template>
 <script type="module">
 import { api, el, button, tokenForm, note, age, loadImages, themeVars, attach, avatar, ownerAvatar, hue } from '/ui/common.js';
 import { render as markdown, summary } from '/ui/markdown.js';
 import { enterSends, fieldHeight } from '/ui/keys.js';
 import { withFeedback } from '/ui/feedback.js';
 import { FIRST_HOUR, layout, hourRange, eventLabel, eventDetails, timeRange, hourLabel, dayLabel, zoneLabel, minuteOf } from '/ui/calendar.js';
+import { focusTitle, readAdhd, saveAdhd, MINIMAL_WIDGETS, MINIMAL_ALWAYS, readMinimal, saveMinimal, setMinimal, minimalClasses, minimalMemos, loadPrefs, savePrefs, savedWords } from '/ui/filter.js';
 import { shownMemos, step, countText, filterChoices, tabTitle, tagSuggestions, todayIn, addDays, nextMonday, dueWarning, COMPACT_NOTE, compactAsked, shownNotes, isUgh, ughTitle, UGH_WORDS } from '/ui/filter.js';
 import { DRAFTS_KEY, SAVE_AFTER_MS, SAVE_AFTER_LEDGER_MS, DRAFT_POLL_MS, DRAFT_POLL_LEDGER_MS, TYPING_MS, parseDrafts, mergeDrafts, pruneDrafts, draftText, nextStamp, caretAfter } from '/ui/drafts.js';
 import { stateWord, pickAgent, fableShortNote, pickWords, helperMemoId, statusLine, helperGroups, finishedWords } from '/ui/agentstate.js';
@@ -168,6 +204,7 @@ import { usageView, startCountdowns } from '/ui/usage.js';
 import { blockedView } from '/ui/blocked.js';
 import { recentMarks, MARK_WORDS } from '/ui/recent.js';
 import { petView, rowPet } from '/ui/petview.js';
+import { headPet } from '/ui/petview.js';
 
 const queue = document.getElementById('queue');
 const capture = document.getElementById('capture');
@@ -176,12 +213,29 @@ let fired = {}; // memo id -> the time of her latest action tied to the memo (me
 let marks = new Map(); // memo id -> 'latest' or 'recent', for the memos of the view (ui/recent.js)
 let ticks = []; // the small actions of now, each with `before`: the id of the memo below it
 let agents = []; // the agents, for the strip under the greeting
+// The skill prediction of each memo, by memo id (memo 1418; src/registry.js): the likely skill, or a suggestion for
+// a new one. It comes from a route of its own, which the GitHub copy of the Inbox never gets.
+let skills = {};
+let skillsFor = null; // the ids of the list that `skills` was asked for
+let skillsAt = 0;
+const SKILLS_EVERY_MS = 60 * 1000;
+// The star of a row and the card of the open memo (ui/skills.js). The pages come from disk at each request and the
+// list of the files of ui/ comes with a start of the server, so a server from before that file does not give it:
+// then the page shows no marks, and works as before.
+let skillStar = () => '';
+let skillCard = () => '';
+let skillLinkOf = () => null; // the address of a skill in the System page, for the Skill Suggestion card
+import('/ui/skills.js').then((m) => { skillStar = m.skillStar; skillCard = m.skillCard; skillLinkOf = m.skillLink; if (Object.keys(skills).length) render(); }).catch(() => {});
 let selected = null;
 let postponedCount = 0;
 let zone = 'America/New_York'; // the owner's time zone, from the server: a postponed memo comes back at 9:00 AM there
 const DUE_SOON_DAYS = 2; // the same limit as src/rank.js: such a memo goes above all others
 
 document.getElementById('owner-avatar').replaceWith(ownerAvatar('__OWNER__'));
+// The skill dialog (memo 1420, ui/skillmodal.js): the pencil of a skill card opens the skill here, in a dialog, with
+// its editor, her rating and its old versions. After a save or a rating the predictions load again. A server from
+// before that file does not give it: then the pencil is the link to the System page, as before.
+import('/ui/skillmodal.js').then((m) => m.installSkillModal({ api, el, markdown, onChange: () => { skillsFor = null; skillsAt = 0; loadSkills(); } })).catch(() => {});
 // Day and night by the sun, with the Theme button in the side bar (memo 1407, ui/theme.js). A server from before that
 // file does not give it: then the page keeps the theme of the device.
 import('/ui/theme.js').then((m) => m.startTheme()).catch(() => {});
@@ -299,8 +353,11 @@ addEventListener('pagehide', () => flushDrafts(true));
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushDrafts(true); });
 
 function select(id) {
+  const changed = selected !== id;
   selected = id;
   for (const node of queue.children) node.classList.toggle('selected', Number(node.dataset.id) === id);
+  // The Skill Suggestion card speaks about the memo in view.
+  if (changed) renderSuggest();
 }
 
 // The thread of a memo: the memos it came from and the memos that came from it (GET /api/thread, src/memos.js
@@ -340,7 +397,7 @@ function transcriptView(m) {
   const label = m.state === 'replied' ? (toOwner ? 'Your reply' : `Reply of ${displayName(m.recipient)}`) : m.state === 'closed' ? 'Closed' : (toOwner ? 'No reply yet' : `${displayName(m.recipient)} did not answer yet`);
   const notes = m.notes || [];
   return el('div', { className: 'transcript' },
-    el('div', { className: 'memo-head' }, avatar(displayName(m.sender)), wsChip(m),
+    el('div', { className: 'memo-head' }, senderMark(m), wsChip(m),
       el('div', { className: 'meta' }, el('span', { className: 'sender' }, displayName(m.sender)), ` → ${displayName(m.recipient)}${m.impact ? ` · impact ${m.impact} · ${m.effort}` : ''} · ${whenText(m.created)}`),
       m.state === 'open' ? el('span', { className: 'tag' }, 'open') : statusChip(m)),
     m.title ? el('div', { className: 'name' }, el('b', {}, m.title)) : '',
@@ -408,6 +465,7 @@ function toggleOpen(id) {
   if (was !== null && saveTimers.has(String(was))) saveDraft(was);
   if (was !== null && was !== id) redraw(was);
   const node = redraw(id);
+  renderSuggest();
   if (!node) return;
   select(id);
   node.scrollIntoView({ behavior: 'instant', block: 'nearest' });
@@ -453,6 +511,12 @@ function impactCell(memo) {
   const pet = memo.sender === '__OWNER__' ? null : rowPet(memo, el, { art: artOf(memo.sender), today: todayIn(zone) });
   return pet ? [pet] : [levelChip(memo), el('span', { className: 'effort' }, memo.effort)];
 }
+// The sender in the head of an open memo (memo 1420): the pet of the agent, the same art as in its row; the letter in
+// a circle for the owner and for a sender with no pet (ui/petview.js headPet, hasPet).
+function senderMark(memo) {
+  const pet = memo.sender === '__OWNER__' ? null : headPet(memo, el, { art: artOf(memo.sender), today: todayIn(zone) });
+  return pet || avatar(displayName(memo.sender));
+}
 // The due date as a short word: Overdue, Today, Tomorrow, or the date.
 function dueText(due, today) {
   if (due < today) return 'Overdue';
@@ -483,7 +547,7 @@ function briefView(memo, readOnly = false) {
   const node = el('article', { className: `memo brief${isSelected ? ' selected' : ''}${mark ? ` ${mark}` : ''}`, title: 'Open this memo' },
     el('span', { className: `mark ${level(memo.impact)}` }),
     el('div', { className: 'cell title' },
-      el('div', { className: 'name' }, readOnly ? '' : unseenDot(memo), wsChip(memo), memo.title || summary(memo.text) || `Memo ${memo.id}`),
+      el('div', { className: 'name' }, readOnly ? '' : unseenDot(memo), wsChip(memo), readOnly ? '' : skillStar(skills[memo.id], el), memo.title || summary(memo.text) || `Memo ${memo.id}`),
       memo.next ? el('div', { className: 'next' }, el('b', {}, 'Next: '), memo.next) : '',
       readOnly ? el('div', { className: 'sub' }, statusChip(memo), ` ${whenText(memo.closed)} · ${displayName(memo.sender)}`)
         : el('div', { className: 'sub' }, mark ? markChip(memo) : '', ughChip(memo), `${displayName(memo.sender)} · ${age(memo.created)}${notes ? ` · ${notes} ${notes === 1 ? 'note' : 'notes'}` : ''}`)),
@@ -504,7 +568,7 @@ function briefView(memo, readOnly = false) {
 // The open row of the Answered view: the memo text, the notes and her reply. Read only: no buttons that change it.
 function answeredView(memo) {
   const node = el('article', { className: memo.id === answeredSelected ? 'memo answered selected' : 'memo answered' },
-    el('div', { className: 'memo-head' }, avatar(displayName(memo.sender)), wsChip(memo), el('div', { className: 'meta' }, el('span', { className: 'sender' }, displayName(memo.sender)), factsOf(memo)), statusChip(memo)),
+    el('div', { className: 'memo-head' }, senderMark(memo), wsChip(memo), el('div', { className: 'meta' }, el('span', { className: 'sender' }, displayName(memo.sender)), factsOf(memo)), statusChip(memo)),
     memo.title ? el('div', { className: 'name' }, el('b', {}, memo.title)) : '',
     memo.tags.length ? el('div', { className: 'chips' }, ...memo.tags.map(tagChip)) : '',
     el('div', { className: 'md' }, ...markdown(memo.text, el, { html: !['liaison', 'discord'].includes(memo.sender), vars: themeVars() })),
@@ -551,7 +615,7 @@ function view(memo, readOnly = false) {
   const toggle = (panel, other) => { other.hidden = true; panel.hidden = !panel.hidden; if (!panel.hidden) panel.querySelector('input, button')?.focus(); };
   const mark = markOf(memo);
   const node = el('article', { className: `memo${memo.id === selected ? ' selected' : ''}${mark ? ` ${mark}` : ''}` },
-    el('div', { className: 'memo-head' }, avatar(displayName(memo.sender)), wsChip(memo), el('div', { className: 'meta' }, el('span', { className: 'sender' }, displayName(memo.sender)), facts), markChip(memo), ughChip(memo), tag),
+    el('div', { className: 'memo-head' }, senderMark(memo), wsChip(memo), el('div', { className: 'meta' }, el('span', { className: 'sender' }, displayName(memo.sender)), facts), markChip(memo), ughChip(memo), tag),
     memo.title ? el('div', { className: 'name' }, el('b', {}, memo.title), memo.next ? el('span', { className: 'dim' }, ` · Next: ${memo.next}`) : '') : '',
     el('div', { className: 'chips' },
       ...memo.tags.map((t) => {
@@ -567,6 +631,8 @@ function view(memo, readOnly = false) {
       button('Collapse', () => toggleOpen(memo.id), 'Show only the name and the next step of this memo')),
     tagPanel,
     laterPanel,
+    // The skill that the memo most likely needs, or a suggestion for one, with the pencil into the System page.
+    skillCard(skills[memo.id], el, memo.id),
     // The Back and Forward buttons through the thread of the memo, and the memo of the thread that shows.
     threadView(memo.id),
     // The text and the notes of the memo. Hidden while a memo of the thread shows.
@@ -1029,6 +1095,9 @@ async function markSeen(id) {
 // The id can be a number or its text; a memo from the cloud agent has a text id (t-...) until the Mac numbers it.
 const nodeOf = (id) => [...queue.children].find((n) => n.dataset.id === String(id));
 function goTo(id) {
+  // With ADHD mode off the list has three memos (memo 1513). A link to another memo wins: the whole Inbox shows for
+  // this visit (the saved choice stays), so the memo she asked for is there.
+  if (!adhdOn && !nodeOf(id) && memos.some((c) => c.id === id)) { adhdOn = true; drawAdhd(); render(); }
   // The memo can be one that the filter hides.
   if (!nodeOf(id) && filter !== 'all' && memos.some((c) => c.id === id)) setFilter('all');
   const node = nodeOf(id);
@@ -1067,7 +1136,93 @@ const filterMenu = document.getElementById('filter');
 const views = document.getElementById('views');
 let filter = 'all';
 try { filter = localStorage.getItem(FILTER_KEY) || (localStorage.getItem('memo-work-only') === '1' ? 'work' : 'all'); } catch { /* a private window: All */ }
-const shown = () => shownMemos(memos, filter);
+// ADHD mode (memo 1513, ui/filter.js). On: the Inbox with all its widgets. Off: the capture field, the three memos of
+// the highest priority in the order of the queue, and the button; the style sheet takes the rest off the page
+// (html.adhd-off), and the list has no filter and no ticks. The browser keeps the choice; the first load is on.
+let adhdOn = true;
+try { adhdOn = readAdhd(localStorage); } catch { /* a private window: on */ }
+const adhdToggle = document.getElementById('adhd-toggle');
+function drawAdhd() {
+  document.documentElement.classList.toggle('adhd-off', !adhdOn);
+  adhdToggle.setAttribute('aria-pressed', String(adhdOn));
+  adhdToggle.querySelector('.adhd-state').textContent = adhdOn ? 'On' : 'Off';
+  adhdToggle.title = adhdOn ? 'ADHD mode is on: all widgets show. Press to show only the capture field and your three top memos.'
+    : 'ADHD mode is off: only the capture field and your three top memos show. Press to show all widgets.';
+}
+function setAdhd(on) {
+  adhdOn = on;
+  try { saveAdhd(localStorage, on); } catch { /* a private window: the choice stays in memory */ }
+  // The server keeps the choice for her other devices (memo 1537); with no server the browser has it.
+  prefsChanges++;
+  if (!globalThis.MEMO_LEDGER) savePrefs(api, null, { adhdOn: on });
+  // The views that the short page has no way out of.
+  if (!on) { answeredMode = false; scheduledMode = false; laterOpen = false; }
+  drawAdhd();
+  render();
+}
+adhdToggle.addEventListener('click', () => setAdhd(!adhdOn));
+drawAdhd();
+// The minimal view (memo 1531, ui/filter.js): the widgets she picked for ADHD mode off. The page has a class for each
+// (html.mv-<key>), and the style sheet hides the others while the mode is off. The browser keeps the choice.
+let minimal = ['top3'];
+try { minimal = readMinimal(localStorage); } catch { /* a private window: the top 3 memos */ }
+function drawMinimal() {
+  const root = document.documentElement;
+  for (const w of MINIMAL_WIDGETS) root.classList.toggle(`mv-${w.key}`, minimalClasses(minimal).includes(`mv-${w.key}`));
+}
+drawMinimal();
+const minimalBox = document.getElementById('minimal-settings');
+// The settings: a legend, what always shows, and a box with a label for each widget. A change applies and is saved
+// at once; the line at the end says so, also to a screen reader.
+function drawMinimalSettings() {
+  const saved = el('p', { className: 'mv-saved', id: 'minimal-saved' });
+  saved.setAttribute('role', 'status');
+  const rows = MINIMAL_WIDGETS.map((w) => {
+    const box = el('input', { type: 'checkbox', id: `mv-${w.key}`, checked: minimal.includes(w.key) });
+    box.addEventListener('change', () => {
+      minimal = setMinimal(minimal, w.key, box.checked);
+      let kept = false;
+      try { kept = saveMinimal(localStorage, minimal); } catch { /* a private window */ }
+      drawMinimal();
+      if (!adhdOn) { selected = shown().some((m) => m.id === selected) ? selected : null; render(); }
+      const words = `${w.label}: ${box.checked ? 'shows' : 'hidden'} when ADHD mode is off.`;
+      prefsChanges++;
+      // The server keeps the choice for her other devices (memo 1537). The GitHub copy has no server: the browser alone.
+      const sent = globalThis.MEMO_LEDGER ? Promise.resolve({ device: kept, server: false }) : savePrefs(api, null, { minimal }).then((r) => ({ device: kept, server: r.server }));
+      sent.then((r) => { if (saved.isConnected) saved.textContent = `${words} ${globalThis.MEMO_LEDGER && kept ? 'Saved on this device.' : savedWords(r)}`; });
+    });
+    return el('li', {}, el('label', { htmlFor: `mv-${w.key}` }, box, w.label));
+  });
+  minimalBox.replaceChildren(el('legend', {}, 'Minimal view (ADHD mode off)'),
+    el('p', {}, 'Pick what shows when ADHD mode is off. With ADHD mode on, everything shows.'),
+    el('p', { className: 'mv-always' }, `Always shown: ${MINIMAL_ALWAYS.join(', ')}.`),
+    el('ul', {}, ...rows), saved);
+}
+const shown = () => (adhdOn ? shownMemos(memos, filter) : minimalMemos(memos, minimal));
+// The two choices come from the server (memo 1537, ui/filter.js loadPrefs), so the phone and the Mac show the same:
+// at the start of the page, and each time the page shows again. The copy of the browser was applied before the first
+// paint; the page changes only when the server has something else. A choice of this device that the server does not
+// have yet goes up one time. A change of hers while the answer is on its way wins over the answer.
+let prefsChanges = 0;
+async function syncPrefs() {
+  if (globalThis.MEMO_LEDGER) return;
+  const at = prefsChanges;
+  let p;
+  try { p = await loadPrefs(api, localStorage); } catch { return; }
+  if (at !== prefsChanges || p.from !== 'server') return;
+  const same = p.adhdOn === adhdOn && p.minimal.join(',') === minimal.join(',');
+  if (same) return;
+  adhdOn = p.adhdOn;
+  minimal = p.minimal;
+  if (!adhdOn) { answeredMode = false; scheduledMode = false; laterOpen = false; }
+  drawAdhd();
+  drawMinimal();
+  if (!minimalBox.hidden) drawMinimalSettings();
+  selected = shown().some((m) => m.id === selected) ? selected : null;
+  render();
+}
+syncPrefs();
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') syncPrefs(); });
 function setFilter(next) {
   filter = next;
   answeredMode = false;
@@ -1103,6 +1258,34 @@ function answeredLink() {
   b.addEventListener('click', () => setAnswered(true));
   return b;
 }
+// The one small menu of a phone (memo 1423): the filters, the Answered and Scheduled views, and the two other pages,
+// in the place of the tabs, the views row and the page links, which a phone does not show.
+const viewSelect = document.getElementById('view-select');
+function renderViewSelect(choices) {
+  const now = answeredMode ? 'answered' : scheduledMode ? 'scheduled' : `f:${filter}`;
+  const option = (value, label) => el('option', { value, selected: value === now }, label);
+  const group = (label, ...options) => { const g = el('optgroup', {}, ...options); g.label = label; return g; };
+  const sig = JSON.stringify([choices, now, answered.length, schedule.items.length]);
+  if (sig === viewSelect.dataset.sig || document.activeElement === viewSelect) return;
+  viewSelect.dataset.sig = sig;
+  viewSelect.replaceChildren(
+    group('Memos', ...choices.map(([value, label, count]) => option(`f:${value}`, count ? `${label} (${count})` : label))),
+    group('More', option('answered', `Answered${answered.length ? ` (${answered.length})` : ''}`), option('scheduled', `Scheduled${schedule.items.length ? ` (${schedule.items.length})` : ''}`)),
+    group('Pages', option('page:/agents', 'Agents page'), option('page:/system', 'System page')));
+}
+viewSelect.addEventListener('change', () => {
+  const value = viewSelect.value;
+  viewSelect.blur();
+  if (value.startsWith('page:')) { location.assign(value.slice(5)); return; }
+  if (value === 'answered') return setAnswered(true);
+  if (value === 'scheduled') return setScheduled(true);
+  setFilter(value.slice(2));
+});
+// On a phone the capture field is narrow: a short placeholder fits in it.
+const narrow = matchMedia('(max-width: 40rem)');
+const setPlaceholder = () => { capture.elements.text.placeholder = narrow.matches ? 'Capture a task' : 'Capture a task for the agent'; };
+narrow.addEventListener('change', setPlaceholder);
+setPlaceholder();
 // The Inbox link goes back to the queue with no new load of the page.
 document.querySelector('.side-nav a[href="/inbox"]').addEventListener('click', (event) => {
   if (!otherMode()) return;
@@ -1114,12 +1297,202 @@ document.querySelector('.side-nav a[href="/inbox"]').addEventListener('click', (
 // The greeting and the date, from the hour. The banner has no counts (memo SYS-5): the head of the list has them.
 const hourIn = (timeZone) => Number(new Intl.DateTimeFormat('en-US', { hour: 'numeric', hourCycle: 'h23', timeZone }).format(new Date()));
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+// The time block (memo 1422): the clock, large; under it the date with the day of the week, small and dim; then the
+// next meeting. The times are in the zone of this browser, the zone the server keeps for the agents (memo tz).
 function renderHero() {
-  const hour = hourIn(zone);
+  const hour = hourIn(browserZone);
   document.getElementById('greeting').textContent = hour < 5 ? 'Still up,' : hour < 12 ? 'Good morning,' : hour < 17 ? 'Good afternoon,' : 'Good evening,';
-  const date = document.getElementById('hero-date');
   const now = new Date();
-  date.replaceChildren(el('b', {}, now.toLocaleDateString(undefined, { weekday: 'long', timeZone: zone })), now.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric', timeZone: zone }));
+  document.getElementById('hero-clock').textContent = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: browserZone });
+  document.getElementById('hero-date').textContent = now.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', timeZone: browserZone });
+  // A phone has the time already: there the block has no clock, and a small date sits next to the name of the app (memo 1423).
+  document.getElementById('side-date').textContent = now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: browserZone });
+  renderNext();
+}
+
+// The next meeting under the clock: "Next: in 1 h 19 m", then its time and its name (ui/meeting.js nextLine), with
+// the Meeting brief button before and during a meeting and the Follow-up button for the last meeting that ended. The
+// data is GET /api/meeting (src/meeting.js), asked each minute; the words follow the clock between the answers. A
+// server from before these files gives none of it: then the block is the clock and the date. Not on the GitHub copy:
+// a brief can hold her prep notes.
+let meet = null; // ui/meeting.js
+let meeting = null; // the last answer of /api/meeting
+let panel = null; // what the panel under the block shows: { kind: 'brief' | 'followup', key }
+let nextSig = '';
+let panelSig = '';
+const followEdits = new Map(); // the id of a follow-up memo -> her edit of its draft, so a new answer keeps her text
+const heroNext = document.getElementById('hero-next');
+const meetingPanel = document.getElementById('meeting-panel');
+import('/ui/meeting.js').then((m) => { meet = m; loadMeeting(); }).catch(() => {});
+const FOLLOW_WORD = { waiting: 'not asked yet', asked: 'in progress', drafted: 'ready to review', answered: 'answered' };
+// The meeting the brief is for: the one that runs, or else the next one of today.
+function briefMeeting() {
+  if (!meeting) return null;
+  if (meeting.current) return meeting.current;
+  return meeting.next && todayIn(browserZone) === new Intl.DateTimeFormat('en-CA', { timeZone: browserZone }).format(new Date(meeting.next.start)) ? meeting.next : null;
+}
+function renderNext() {
+  if (!meet || !meeting || meeting.configured === false) { heroNext.hidden = true; return; }
+  const line = meet.nextLine({ current: meeting.current, next: meeting.next }, Date.now(), browserZone);
+  const forBrief = briefMeeting();
+  const last = meeting.last;
+  const sig = JSON.stringify([line, forBrief?.key, last?.key, last?.followup.state, panel]);
+  if (sig !== nextSig) {
+    nextSig = sig;
+    const toggle = (kind, key) => { panel = panel?.kind === kind && panel.key === key ? null : { kind, key }; panelSig = ''; renderNext(); renderPanel(); };
+    const pressed = (b, on) => { b.setAttribute('aria-pressed', String(on)); b.classList.toggle('on', on); return b; };
+    const buttons = [];
+    if (forBrief) buttons.push(pressed(button('Meeting brief →', () => toggle('brief', forBrief.key), `What exists as a brief for ${forBrief.title}, or ask your agent for one`), panel?.kind === 'brief'));
+    if (last) buttons.push(pressed(button(`Follow-up: ${last.title} · ${FOLLOW_WORD[last.followup.state]} →`, () => toggle('followup', last.key), `The follow-up of ${last.title}: the draft of your agent, to edit and send`), panel?.kind === 'followup'));
+    // With no meeting to name and no button, a phone leaves the whole block out.
+    heroNext.classList.toggle('bare', !line.head && !buttons.length);
+    heroNext.replaceChildren(
+      line.head ? el('p', { className: 'next-head' }, line.head) : '',
+      el('p', { className: line.head ? 'next-detail' : 'next-detail quiet' }, line.detail),
+      buttons.length ? el('div', { className: 'next-buttons' }, ...buttons) : '');
+  }
+  heroNext.hidden = false;
+}
+async function loadMeeting() {
+  if (!meet || globalThis.MEMO_LEDGER) return;
+  try {
+    meeting = await api(`/api/meeting?tz=${encodeURIComponent(browserZone)}`);
+    renderNext();
+    renderPanel();
+  } catch { /* the block stays as it is; the next minute asks again */ }
+}
+const meetingTime = (m) => `${new Date(m.start).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: browserZone })}, ${meet.rangeText(m.start, m.end, browserZone)}${m.people.length ? ` · with ${m.people.join(', ')}` : ''}`;
+const mdBlock = (title, text) => el('section', { className: 'brief-part' }, el('h3', {}, title), el('div', { className: 'md' }, ...markdown(text, el)));
+// The panel under the time block: the brief of a meeting, or the follow-up of the last one. It is drawn again only
+// when its data changed, and never while she types in it.
+function renderPanel() {
+  const m = !panel || !meeting ? null : panel.kind === 'brief' ? [meeting.current, meeting.next].find((x) => x?.key === panel.key) : meeting.last?.key === panel.key ? meeting.last : null;
+  if (!m) { panel = null; panelSig = ''; meetingPanel.hidden = true; meetingPanel.replaceChildren(); return; }
+  const sig = JSON.stringify([panel, m]);
+  if (sig === panelSig || meetingPanel.contains(document.activeElement) && document.activeElement.tagName === 'TEXTAREA') return;
+  panelSig = sig;
+  const close = button('Close', () => { panel = null; renderNext(); renderPanel(); }, 'Close this panel');
+  const head = (word) => el('div', { className: 'card-head' }, el('h2', {}, `${word}: ${m.title}`), el('span', { className: 'dim' }, meetingTime(m)), el('span', { className: 'spacer' }), close);
+  const say = el('p', { className: 'panel-say', hidden: true });
+  say.setAttribute('role', 'status');
+  const act = async (b, path, body, done) => {
+    try { if (await withFeedback(b, async () => { const r = await api(path, body); say.textContent = done(r); say.hidden = false; })) { panelSig = ''; await loadMeeting(); await load(); } } catch (error) { say.textContent = error.message; say.hidden = false; }
+  };
+  const memoLink = (id, words) => { const a = el('a', { href: `#memo-${id}` }, words); a.addEventListener('click', (event) => { event.preventDefault(); goToMemo(id); }); return a; };
+  if (panel.kind === 'brief') {
+    const b = m.brief;
+    const parts = [];
+    if (b.prep) parts.push(mdBlock('Prep notes in the invite', b.prep));
+    if (b.card) parts.push(mdBlock(b.card.exact ? 'Context card of this meeting' : `Context card of an earlier meeting${b.card.date ? `, ${b.card.date}` : ''}`, b.card.text));
+    if (b.asked?.answer) parts.push(mdBlock(`Brief from ${displayName(b.asked.to)}`, b.asked.answer.text));
+    if (!b.prep && b.invite) parts.push(mdBlock('From the invite', b.invite));
+    const none = !b.prep && !b.card && !b.asked?.answer;
+    const ask = b.asked ? el('p', { className: 'dim' }, `You asked ${displayName(b.asked.to)} for a brief${b.asked.answer ? '' : '. It shows here when its memo arrives'}. `, b.asked.answer ? memoLink(b.asked.answer.id, 'Open the memo') : '')
+      : el('div', { className: 'row' }, el('span', { className: 'dim' }, none ? 'No brief exists for this meeting yet.' : 'Want more than this?'),
+        button(none ? 'Ask for a brief' : 'Ask for a fresh brief', (btn) => act(btn, '/api/meeting/brief', { key: m.key, tz: browserZone }, (r) => (r.asked ? `Asked, memo ${r.memo}. The brief comes as a memo and shows here.` : 'A brief for this meeting was asked already.')), 'Sends one memo to your agent that asks for a brief of this meeting'));
+    meetingPanel.replaceChildren(head('Meeting brief'), ...parts, ask, say);
+  } else {
+    const f = m.followup;
+    const body = [];
+    if (f.state === 'waiting') {
+      body.push(el('p', {}, `${displayName(f.to)} gets the follow-up request at ${new Date(f.due).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: browserZone })}, for a meeting on your work calendar.`),
+        el('div', { className: 'row' }, button('Ask now', (btn) => act(btn, '/api/meeting/followup', { key: m.key, tz: browserZone }, (r) => (r.asked ? `Asked, memo ${r.memo}. The draft shows here when it is ready.` : 'The follow-up was asked already.')), 'Sends the follow-up request to your agent now')));
+    } else if (f.state === 'asked') {
+      body.push(el('p', {}, `${displayName(f.to)} has the request and works on the draft. It shows here when its memo arrives.`));
+    } else if (f.state === 'answered') {
+      body.push(el('p', {}, 'You answered this follow-up already. ', memoLink(f.answer.id, 'Open the memo')));
+    } else {
+      const id = f.answer.id;
+      const area = el('textarea', { className: 'editor follow-edit', rows: 14, value: followEdits.get(id) ?? f.draft });
+      area.setAttribute('aria-label', `Follow-up for ${m.title}, to edit`);
+      area.addEventListener('input', () => followEdits.set(id, area.value));
+      area.addEventListener('keydown', (event) => event.stopPropagation());
+      const sendB = button('Send', (btn) => {
+        if (!area.value.trim()) { say.textContent = 'The follow-up has no text.'; say.hidden = false; return; }
+        act(btn, '/api/meeting/send', { memo: id, text: area.value }, (r) => { followEdits.delete(id); return `Handed to ${displayName(r.to)} with your go-ahead. It posts this text where it drafted it.`; });
+      }, `Hands this text to ${displayName(f.to)} as your go-ahead to send it, in the place of its draft`);
+      sendB.className = 'primary';
+      body.push(el('p', {}, meet.firstLine(f.answer.text)),
+        f.found ? '' : el('p', { className: 'warn' }, 'This memo has no part named THE DRAFT, so the whole memo is in the box. Remove what is only for you before you send.'),
+        area,
+        el('p', { className: 'dim' }, `Send hands the text in the box to ${displayName(f.to)} as your reply on its memo, with your go-ahead. The agent posts it where it drafted it, in Slack or as mail; Memo itself sends nothing. To send it yourself, use the draft in Slack or Gmail and close the memo.`),
+        el('div', { className: 'row' }, sendB, button('Reset', () => { followEdits.delete(id); panelSig = ''; renderPanel(); }, 'Put the draft of the agent back in the box'), el('span', { className: 'spacer' }), memoLink(id, 'Open the whole memo')));
+    }
+    meetingPanel.replaceChildren(head('Follow-up'), ...body, say);
+  }
+  meetingPanel.hidden = false;
+}
+// The clock follows the time between the polls of the list, and the meetings are asked again each minute.
+setInterval(renderHero, 10000);
+setInterval(loadMeeting, 60000);
+
+// ---------- the Skill Suggestion card, the Quick Access card (memo 1421, ui/dash.js) ----------
+// A server from before ui/dash.js does not give it: then the two parts stay hidden and the page works as before.
+let dash = null;
+let skillOthers = {}; // memo id -> the other suggestions of the memo (GET /api/skills/others)
+let skillsOn = false; // the server has a skill registry
+let quickSig = '';
+let pickedSkill = null; // { memo, skill }: the chip she chose in the card, for that memo
+const suggestCard = document.getElementById('skill-suggest');
+const quickCard = document.getElementById('quick-access');
+const dashIcons = document.getElementById('dash-icons');
+// A copy of one small picture, or '' when the page has none of that name.
+function icon(name) {
+  const svg = dashIcons.content.querySelector(`[data-i="${name}"]`)?.cloneNode(true);
+  if (!svg) return '';
+  svg.setAttribute('class', 'dash-ico');
+  svg.setAttribute('aria-hidden', 'true');
+  for (const [k, v] of [['fill', 'none'], ['stroke', 'currentColor'], ['stroke-width', '1.7'], ['stroke-linecap', 'round'], ['stroke-linejoin', 'round']]) svg.setAttribute(k, v);
+  return svg;
+}
+import('/ui/dash.js').then((m) => { dash = m; renderQuick(); renderSuggest(); }).catch(() => {});
+// "Use Skill": the memo opens, and its reply field gets the line "Use the skill <name> for this memo." as a draft.
+// Nothing is sent: she adds what she wants and presses Note (the memo stays open) or Reply.
+function useSkill(memo, name) {
+  if (otherMode()) { scheduledMode = false; setAnswered(false); }
+  openMemo(memo.id);
+  const text = dash.withSkillLine(draftText(drafts, memo.id), name);
+  const area = nodeOf(memo.id)?.querySelector('textarea');
+  if (!area) return;
+  area.value = text;
+  setDraft(memo.id, text);
+  area.focus();
+  area.setSelectionRange(text.length, text.length);
+}
+function renderSuggest() {
+  if (!dash || !skillsOn || globalThis.MEMO_LEDGER) { suggestCard.hidden = true; return; }
+  const memo = dash.contextMemo(shown(), { openId, selected, skills, others: skillOthers });
+  if (pickedSkill && pickedSkill.memo !== memo?.id) pickedSkill = null;
+  const link = (p, id) => skillLinkOf(p.kind ? p : { ...p, kind: 'match' }, id);
+  document.getElementById('skill-suggest-body').replaceChildren(dash.suggestCard(
+    { memo, top: memo ? skills[memo.id] : null, others: memo ? skillOthers[memo.id] || [] : [], picked: pickedSkill?.skill ?? null }, el,
+    { icon, link, on: { use: useSkill, open: (m) => goToMemo(m.id), pick: (name) => { pickedSkill = { memo: memo.id, skill: name }; renderSuggest(); } } }));
+  suggestCard.hidden = false;
+}
+function renderQuick() {
+  if (!dash) { quickCard.hidden = true; return; }
+  const to = capture.elements.to;
+  // The Themes button presses the theme button of the side bar (ui/theme.js), which is there once that file loaded.
+  const themeButton = document.querySelector('.theme-toggle');
+  const items = dash.quickItems({ routing: !to.hidden && to.options.length > 1, theme: themeButton ? `${themeButton.textContent}. ${themeButton.title}` : '', layout: true, open: !minimalBox.hidden });
+  // Drawn again only when what it shows changed, so a button in it keeps the focus through the polls.
+  const sig = JSON.stringify(items);
+  if (sig === quickSig && !quickCard.hidden) return;
+  quickSig = sig;
+  document.getElementById('quick-body').replaceChildren(dash.quickAccess(items, el, { icon, run: (what) => {
+    if (what === 'theme') { themeButton.click(); renderQuick(); }
+    if (what === 'routing') { capture.scrollIntoView({ behavior: 'instant', block: 'start' }); to.focus(); showPick(true); }
+    // Layout: the settings of the minimal view open under the buttons, and close again (memo 1531). The card is
+    // drawn again for the state of the button, so the focus goes back to it, or to the first box.
+    if (what === 'layout') {
+      minimalBox.hidden = !minimalBox.hidden;
+      document.documentElement.classList.toggle('mv-editing', !minimalBox.hidden);
+      if (!minimalBox.hidden) drawMinimalSettings();
+      renderQuick();
+      (minimalBox.hidden ? document.querySelector('#quick-body button[aria-expanded]') : minimalBox.querySelector('input'))?.focus();
+    }
+  } }));
+  quickCard.hidden = false;
 }
 // One count in the head of the list: a quiet button in the same dim text, pressed while its filter is on. An
 // underline shows only on hover or focus.
@@ -1277,8 +1650,8 @@ function renderSide() { renderHero(); renderAgents(); }
 
 function render() {
   const list = shown();
-  const filtered = filter !== 'all';
-  const rows = filtered ? [] : ticks;
+  const filtered = adhdOn && filter !== 'all';
+  const rows = filtered || !adhdOn ? [] : ticks;
   if (!list.some((c) => c.id === selected)) selected = list[0]?.id ?? null;
   watch.disconnect();
   for (const timer of waiting.values()) clearTimeout(timer);
@@ -1298,6 +1671,7 @@ function render() {
   const choices = filterChoices(memos, filter);
   filterMenu.replaceChildren(...choices.map(([value, label, count]) => tab(value, label, count)));
   views.replaceChildren(...choices.map(([value, label]) => viewLink(value, label)), answeredLink(), scheduledLink());
+  renderViewSelect(choices);
   const inboxLink = document.querySelector('.side-nav a[href="/inbox"]');
   inboxLink.classList.toggle('on', !otherMode());
   if (otherMode()) inboxLink.removeAttribute('aria-current'); else inboxLink.setAttribute('aria-current', 'page');
@@ -1305,7 +1679,7 @@ function render() {
   answeredList.hidden = !answeredMode;
   scheduledList.hidden = !scheduledMode;
   filterMenu.hidden = otherMode();
-  document.getElementById('queue-title').textContent = answeredMode ? 'Answered' : scheduledMode ? 'Scheduled' : 'Memos';
+  document.getElementById('queue-title').textContent = answeredMode ? 'Answered' : scheduledMode ? 'Scheduled' : adhdOn ? 'Memos' : focusTitle(list.length);
   if (answeredMode) renderAnswered(); else answeredList.replaceChildren();
   if (scheduledMode) renderScheduled(); else scheduledList.replaceChildren();
   document.getElementById('thead').hidden = answeredMode ? !answered.length : scheduledMode || !list.length;
@@ -1320,6 +1694,7 @@ function render() {
   if (!postponedCount) laterOpen = false;
   laterBox.hidden = !laterOpen;
   renderSide();
+  renderSuggest();
 }
 
 // The time of the start of the server, from the first answer of the queue. A different time later: the server started
@@ -1363,9 +1738,31 @@ async function load() {
     if (data.drafts && typeof data.drafts === 'object') takeDrafts(data.drafts);
     // A link to one memo (/inbox#memo-<id>, from the Agents page): the memo opens at the first load that has it.
     if (wantedId !== null && memos.some((m) => m.id === wantedId)) { openMemo(wantedId); wantedId = null; }
+    loadSkills();
     loadAnswered();
     loadSchedule();
   } catch (error) { note(error.message); }
+}
+// The skill predictions of the list (memo 1418): asked for when the list has other memos than at the last ask, and
+// again each minute. A new answer draws the list again, with the same care for a reply field as any new list. Not
+// on the GitHub copy: nothing about skills leaves the computer. A server with no registry, or from before this
+// route, gives an error: then the page shows no marks and says nothing.
+async function loadSkills() {
+  if (globalThis.MEMO_LEDGER) return;
+  const ids = memos.map((m) => m.id).join(',');
+  if (ids === skillsFor && Date.now() - skillsAt < SKILLS_EVERY_MS) return;
+  skillsFor = ids;
+  skillsAt = Date.now();
+  try {
+    // The other suggestions of each memo, for the Skill Suggestion card (memo 1421). A server from before that route gives none.
+    const [next, others] = await Promise.all([api('/api/skills/predictions').then((r) => r.predictions || {}), api('/api/skills/others').then((r) => r.others || {}).catch(() => ({}))]);
+    skillsOn = true;
+    const same = JSON.stringify(next) === JSON.stringify(skills);
+    const sameOthers = JSON.stringify(others) === JSON.stringify(skillOthers);
+    skills = next;
+    skillOthers = others;
+    if (!same) render(); else if (!sameOthers || suggestCard.hidden) renderSuggest();
+  } catch { /* no marks */ }
 }
 // The memo that the address names, #memo-<id>. The address loses it, so a reload does not open it again.
 let wantedId = null;
@@ -1497,6 +1894,7 @@ async function loadAgents() {
     showPick();
     renderAgents();
     renderTracks();
+    renderQuick();
   } catch (error) { note(error.message); }
 }
 // A code typed in the task (OPS or FUND), or plain words for deep work or code, can change the pick before the next poll.
@@ -1541,6 +1939,8 @@ document.addEventListener('keydown', (event) => {
   if (event.metaKey || event.ctrlKey || event.altKey) return;
   // Escape leaves the field she types in, so the other keys work again.
   if (typing()) { if (event.key === 'Escape') document.activeElement.blur(); return; }
+  // With ADHD mode off the tabs and the Answered view are not on the page, so their keys rest.
+  if (!adhdOn && (event.key === 'w' || event.key === 'a' || /^[1-9]$/.test(event.key))) return;
   if (event.key === 'w') return setFilter(filter === 'work' ? 'all' : 'work');
   // 1 to 9: the tab at that place, counted from the left.
   if (/^[1-9]$/.test(event.key)) {
@@ -1580,7 +1980,7 @@ document.addEventListener('keydown', (event) => {
 renderHero();
 // The countdowns of the usage lines tick each minute between polls (ui/usage.js).
 startCountdowns(document);
-tokenForm(() => { load(); loadAgents(); loadCalendar(); loadCalendars(); sendZone(); });
+tokenForm(() => { load(); loadAgents(); loadCalendar(); loadCalendars(); sendZone(); syncPrefs(); });
 load();
 loadAgents();
 renderCalendar();
@@ -1604,7 +2004,7 @@ setInterval(() => {
 function refresh() {
   if (openId !== null && busy(String(openId))) return Promise.resolve();
   polled = Date.now();
-  return Promise.all([load(), loadAgents(), loadCalendar()]);
+  return Promise.all([load(), loadAgents(), loadCalendar(), loadMeeting()]);
 }
 document.getElementById('refresh').addEventListener('click', (event) => { withFeedback(event.currentTarget, refresh).catch((error) => note(error.message)); });
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refresh(); });

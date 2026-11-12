@@ -17,3 +17,7 @@ git@github\.com
 (mac|mac-mini|your-mac)\.(example|tail1a2b3c|your-tailnet)\.ts\.net
 # The made-up GitHub key of app/test/setup-link.test.js: the alphabet in order, not a key.
 github_pat_11ABCDEFG0123456789abcdefghijklmnopqrstuvwxyz
+# The addresses of the two template repositories: the one deliberate mention of the account that publishes them.
+github\.com/Liconstan/(memo-starter|second-brain-starter)
+# A made-up hostile address in the tests of the rule-document dialog.
+@127\.0\.0\.1\.evil\.test

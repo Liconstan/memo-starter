@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { etag } from 'hono/etag';
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { chmodSync, createReadStream, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
@@ -13,7 +13,9 @@ import { dueSoon } from './rank.js';
 import { parseCalendar, eventsOn, validZone } from './ical.js';
 import { CAPABILITIES, pickSpecialist, taskCapability } from '../ui/specialists.js';
 import { pickAgent } from '../ui/agentstate.js';
+import { parseMinimal } from '../ui/filter.js';
 import { createPetArt, PET_ROUTE } from './pets.js';
+import { predictAll, othersAll, spreadLine } from './registry.js';
 
 // The only files that /ui/<name> gives.
 const UI = {
@@ -36,7 +38,12 @@ const UI = {
   'petview.js': 'text/javascript; charset=utf-8',
   'theme.js': 'text/javascript; charset=utf-8',
   'place.js': 'text/javascript; charset=utf-8',
+  'skillmodal.js': 'text/javascript; charset=utf-8',
+  'linenumbers.js': 'text/javascript; charset=utf-8',
   'sendstage.js': 'text/javascript; charset=utf-8',
+  'skills.js': 'text/javascript; charset=utf-8',
+  'dash.js': 'text/javascript; charset=utf-8',
+  'meeting.js': 'text/javascript; charset=utf-8',
   'common.css': 'text/css; charset=utf-8',
   // The home screen icon, tab icon, and sidebar logo: a 180 px crop of an illustration of the cat Peeve.
   'icon.png': 'image/png',
@@ -83,9 +90,11 @@ export const envCalendars = (value) => (value ? String(value).split(/[\s,]+/).fi
 // calendarUrl: the secret iCal address of the calendar of the owner, or nothing. getCalendar: gets its text (a test gives its own).
 // dataDir: the directory of data/client-tz.json, the time zone of the browser of the owner, and of data/calendars.json.
 // system: the System page (src/system.js), or nothing.
+// registry: the skill registry (src/registry.js), or nothing: then the skill routes answer 503 and the pages show no skill marks.
 // videos: the store of videos (src/videos.js), or nothing: then a video upload is refused. frames: the still frames of
 // a video (src/frames.js), or nothing: then a video comes with no frames.
-export function createApp({ store, agents, images, files, videos, frames, ticks, ticksOn = false, system, root, token, liaisonToken, owner = 'owner', tailscale, now = () => new Date(),
+// meetings: the meetings of the time block (src/meeting.js), or nothing: then 503.
+export function createApp({ store, agents, images, files, videos, frames, ticks, ticksOn = false, system, registry, meetings, root, token, liaisonToken, owner = 'owner', tailscale, now = () => new Date(),
   schedulePath = join(process.env.MEMO_LOCAL || join(root, 'local'), 'schedule.json'),
   calendarUrl, getCalendar = fetchCalendar, dataDir = join(root, 'data'),
   // ledgerPage: the address of the GitHub Pages Inbox (README.md, "Inbox from anywhere"), or nothing. It is only for the
@@ -354,6 +363,46 @@ export function createApp({ store, agents, images, files, videos, frames, ticks,
     only(c, false);
     return c.json(clientTz());
   });
+  // The preferences of the owner for the pages (memo 1537), so each of her devices shows the same: ADHD mode on or
+  // off, and the widgets of the minimal view (ui/filter.js). The file is data/prefs.json:
+  // {"adhd": "off", "minimal": "top3,agents", "updated": "<ISO time>"}. A value that she never set is null. Only the
+  // owner reads and writes it (the full token, or her Tailscale identity). A write names one or both values; a name
+  // that is no preference, and a value that is not valid, are refused, so the file stays small.
+  const prefsPath = join(dataDir, 'prefs.json');
+  const readPrefs = () => {
+    let p = {};
+    try { p = JSON.parse(readFileSync(prefsPath, 'utf8')) || {}; } catch { /* no file yet */ }
+    return { adhd: p.adhd === 'on' || p.adhd === 'off' ? p.adhd : null, minimal: typeof p.minimal === 'string' ? parseMinimal(p.minimal).join(',') : null, updated: typeof p.updated === 'string' ? p.updated : null };
+  };
+  app.get('/api/prefs', (c) => {
+    only(c, false);
+    return c.json(readPrefs());
+  });
+  const writePrefs = async (c) => {
+    const b = await body(c);
+    only(c, false);
+    const names = Object.keys(b);
+    const unknown = names.filter((k) => k !== 'adhd' && k !== 'minimal');
+    if (unknown.length || !names.length) throw new MemoError(400, 'Give adhd ("on" or "off"), minimal (the keys of the widgets, with commas), or both. Nothing else is a preference.');
+    const next = readPrefs();
+    if ('adhd' in b) {
+      if (b.adhd !== 'on' && b.adhd !== 'off') throw new MemoError(400, 'adhd must be "on" or "off".');
+      next.adhd = b.adhd;
+    }
+    if ('minimal' in b) {
+      if (typeof b.minimal !== 'string' || b.minimal.length > 300 || !/^([a-z0-9]{1,20}(,[a-z0-9]{1,20})*)?$/.test(b.minimal)) throw new MemoError(400, 'minimal must be the keys of widgets in small letters and digits, with commas, for example top3,agents.');
+      const keys = parseMinimal(b.minimal);
+      if (keys.length !== new Set(b.minimal.split(',').filter(Boolean)).size) throw new MemoError(400, 'minimal names a widget that the Inbox does not have.');
+      next.minimal = keys.join(',');
+    }
+    next.updated = now().toISOString();
+    mkdirSync(dataDir, { recursive: true });
+    writeFileSync(prefsPath, `${JSON.stringify(next)}\n`);
+    return c.json(next);
+  };
+  app.put('/api/prefs', writePrefs);
+  // The pages send every write as a POST (ui/common.js api).
+  app.post('/api/prefs', writePrefs);
   // Read only: the events of one day of the calendar of the owner. ?date=YYYY-MM-DD; ?tz= the zone of that day
   // (default: the last zone of the browser, then that of this computer).
   let calendarCache = null; // { at, cals }
@@ -371,6 +420,61 @@ export function createApp({ store, agents, images, files, videos, frames, ticks,
   };
   // All the addresses, those of .env first. The place of an address in this list names it to the owner ("Calendar 2").
   const allUrls = () => [...envUrls, ...pageUrls()];
+  // The calendars, parsed, kept 5 minutes: [{ cal, self }]. A calendar that does not load stops the request with 502.
+  async function loadCalendars(calendarUrls) {
+    if (calendarCache && now() - calendarCache.at <= CALENDAR_CACHE_MS) return calendarCache.cals;
+    const cals = [];
+    for (const [i, url] of calendarUrls.entries()) {
+      // With more than one calendar, the message says which one, by its place in the list (the Inbox page shows the same number).
+      const which = calendarUrls.length > 1 ? `Calendar ${i + 1} did not load.` : 'The calendar did not load.';
+      let text;
+      // The message never has the address: the error of fetch can contain it.
+      try { text = await getCalendar(url); } catch (err) {
+        const known = /^Google Calendar gave status \d+\.$/.test(err?.message || '') ? err.message : 'Google Calendar did not answer.';
+        throw new MemoError(502, `${which} ${known}`);
+      }
+      if (!/BEGIN:VCALENDAR/i.test(text)) throw new MemoError(502, `${which} The answer is not an iCal calendar; check the address.`);
+      cals.push({ cal: parseCalendar(text), self: calendarOwner(url) });
+    }
+    calendarCache = { at: now(), cals };
+    return cals;
+  }
+  // The time block of the Inbox (src/meeting.js, memo 1422): the meeting that runs, the next one with what exists as
+  // its brief, and the last one with the state of its follow-up. The owner only: a brief can hold her prep notes, so
+  // these routes are not among the reads of the ledger. ?tz= the zone of the browser, as for /api/calendar.
+  const needMeetings = (c) => {
+    only(c, false);
+    if (!meetings) throw new MemoError(503, 'The meeting block is not set up on this server.');
+    return meetings;
+  };
+  const meetingZone = (c, b = {}) => {
+    const zone = b.tz || c.req.query('tz') || clientTz().timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (!validZone(zone)) throw new MemoError(400, 'tz must be an IANA time zone name.');
+    return zone;
+  };
+  app.get('/api/meeting', async (c) => {
+    const m = needMeetings(c);
+    const urls = allUrls();
+    if (!urls.length) return c.json({ configured: false });
+    return c.json({ configured: true, ...m.view(await loadCalendars(urls), meetingZone(c)) }, 200, { 'Cache-Control': 'no-store' });
+  });
+  // She asks the agent for a brief of a meeting, or for its follow-up now. One memo per occurrence.
+  app.post('/api/meeting/brief', async (c) => {
+    const b = await body(c);
+    const m = needMeetings(c);
+    return c.json(m.askBrief(await loadCalendars(allUrls()), meetingZone(c, b), String(b.key ?? '')));
+  });
+  app.post('/api/meeting/followup', async (c) => {
+    const b = await body(c);
+    const m = needMeetings(c);
+    return c.json(m.askFollowup(await loadCalendars(allUrls()), meetingZone(c, b), String(b.key ?? '')));
+  });
+  // Send: her edited follow-up goes to the agent as her reply on its memo, with the fixed first words that are her
+  // go-ahead (ui/meeting.js SEND_LINE). The server sends nothing to Slack or mail itself.
+  app.post('/api/meeting/send', async (c) => {
+    const b = await body(c);
+    return c.json(needMeetings(c).send(b.memo, b.text));
+  });
   app.get('/api/calendar', async (c) => {
     only(c, false);
     const calendarUrls = allUrls();
@@ -379,22 +483,7 @@ export function createApp({ store, agents, images, files, videos, frames, ticks,
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(`${date}T00:00:00Z`))) throw new MemoError(400, 'date must be YYYY-MM-DD.');
     const zone = c.req.query('tz') || clientTz().timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone;
     if (!validZone(zone)) throw new MemoError(400, 'tz must be an IANA time zone name.');
-    if (!calendarCache || now() - calendarCache.at > CALENDAR_CACHE_MS) {
-      const cals = [];
-      for (const [i, url] of calendarUrls.entries()) {
-        // With more than one calendar, the message says which one, by its place in the list (the Inbox page shows the same number).
-        const which = calendarUrls.length > 1 ? `Calendar ${i + 1} did not load.` : 'The calendar did not load.';
-        let text;
-        // The message never has the address: the error of fetch can contain it.
-        try { text = await getCalendar(url); } catch (err) {
-          const known = /^Google Calendar gave status \d+\.$/.test(err?.message || '') ? err.message : 'Google Calendar did not answer.';
-          return c.json({ error: `${which} ${known}` }, 502);
-        }
-        if (!/BEGIN:VCALENDAR/i.test(text)) return c.json({ error: `${which} The answer is not an iCal calendar; check the address.` }, 502);
-        cals.push({ cal: parseCalendar(text), self: calendarOwner(url) });
-      }
-      calendarCache = { at: now(), cals };
-    }
+    await loadCalendars(calendarUrls);
     // The events of all the calendars in one list. An event that is on two calendars (the same title, start and end) shows once.
     const seen = new Set();
     const events = calendarCache.cals.flatMap(({ cal, self }) => eventsOn(cal, date, zone, { self })).filter((e) => {
@@ -656,9 +745,89 @@ export function createApp({ store, agents, images, files, videos, frames, ticks,
   app.get('/api/system/version', (c) => c.json(needSystem(c).version()));
   app.get('/api/system/map', (c) => c.json(needSystem(c).mapHtml()));
   app.get('/api/system/file', (c) => c.json(needSystem(c).read(c.req.query('id'))));
+  // The text of a file before its latest change (memo 1513), for the "Latest change" of the dialog of the Inbox.
+  app.get('/api/system/previous', async (c) => c.json(await needSystem(c).previous(c.req.query('id'))));
   app.post('/api/system/save', async (c) => {
     const b = await body(c);
-    return c.json(await needSystem(c).save(b.id, b.text, b.base));
+    const saved = await needSystem(c).save(b.id, b.text, b.base);
+    // A saved skill can have a new description, a new category, or be a new skill: the registry reads the files again.
+    registry?.refresh();
+    return c.json(saved);
+  });
+  // The skills (src/registry.js, memo 1418; a trial). The owner only. The answers hold names, descriptions and
+  // who has a skill, never the text of a skill. These routes are not among the reads of the ledger (src/ledger.js,
+  // READS), so nothing about skills goes to the GitHub copy of the Inbox.
+  const needRegistry = (c) => {
+    only(c, false);
+    if (!registry) throw new MemoError(503, 'The skill registry is not set up on this server.');
+    return registry.get();
+  };
+  // Every skill with its category and the agents that have it; `spread` is the line of the System page.
+  app.get('/api/skills', (c) => {
+    const r = needRegistry(c);
+    return c.json({ skills: r.skills.map((s) => ({ ...s, spread: spreadLine(s) })), agents: r.agents, categories: r.categories });
+  });
+  // The day a hand-made skill was last named comes from the closed memos of the store (memo 1420).
+  registry?.setMentions?.(() => store.closedTexts());
+  // The log of one skill (memo 1420): its version now, whether she rated it, its old versions and every rating.
+  app.get('/api/skills/log', (c) => c.json(needSystem(c).skillLog(c.req.query('name'))));
+  // The text of one old version, for the list of versions in the editor.
+  app.get('/api/skills/version', (c) => c.json(needSystem(c).skillVersion(c.req.query('name'), c.req.query('file'))));
+  // Her rating of the text a skill has now, 1 to 5, with what she would change. The rating is a line of
+  // skills/ratings.jsonl in the vault. A rating with words also sends one memo from her to the first long agent,
+  // "Skill feedback: <name>", in the workstream SYS: that memo is how the skill gets its next version.
+  app.post('/api/skills/rate', async (c) => {
+    const b = await body(c);
+    const s = needSystem(c);
+    const done = await s.rate({ name: b.name, score: b.score, notes: b.notes, memo: b.memo });
+    registry?.refresh();
+    let sent = null;
+    if (done.rating.notes) {
+      const long = agents.list().filter((a) => a.kind === 'long').map((a) => a.name);
+      const to = long.includes('main') ? 'main' : long[0];
+      if (to) {
+        try {
+          const r = done.rating;
+          let known = false;
+          try { known = r.memo !== null && Boolean(store.get(r.memo)); } catch { /* a memo that is gone: no link */ }
+          const from = known ? ` She rated it from memo ${r.memo}.` : '';
+          const file = r.kind === 'hand' ? `skills/${r.skill}/SKILL.md` : `skills/agent/${r.skill}/SKILL.md`;
+          const text = [
+            `**The owner rated the skill \`${r.skill}\` ${r.score} of 5 and wrote what she would change. Revise the skill from her notes.**${from}`,
+            `Her notes, on version ${r.version}:`,
+            r.notes.split('\n').map((line) => `> ${line}`).join('\n'),
+            `How: in the vault, pull, keep the old text with \`scripts/skill-version ${r.skill}\` (in the Memo folder), edit \`${file}\` in place, commit both files and push.${r.kind === 'hand' ? ' It is a hand-made skill: the vault copy is the one the nightly skills sync spreads to the agents.' : ''} Her rating is in \`skills/ratings.jsonl\`; do not edit that file. Close this memo with one line that says what changed, so she can rate the new version.`,
+          ].join('\n\n');
+          const memo = store.send({ from: owner, to, text, title: `Skill feedback: ${r.skill}`, ...(Object.hasOwn(store.workstreams || {}, 'SYS') ? { ws: 'SYS' } : {}), ...(from ? { re: [r.memo] } : {}) }).memo;
+          agents.arrived(to);
+          sent = { id: memo.id, code: memo.code ?? null, to };
+        } catch (error) { done.error = [done.error, `The rating is saved, but the memo to the agent was not sent: ${error.message}`].filter(Boolean).join(' '); }
+      }
+    }
+    return c.json({ ...done, memo: sent });
+  });
+  // By memo id of the Inbox: the skill that the memo most likely needs, or a suggestion for a skill that is not
+  // there, or no entry. The agent of the access line is the sender of the memo when that is an agent, else the
+  // first long agent, which gets the tasks by default.
+  app.get('/api/skills/predictions', (c) => {
+    const r = needRegistry(c);
+    const names = agents.list().filter((a) => a.kind !== 'short').map((a) => a.name);
+    const agentOf = (memo) => (names.includes(memo.sender) ? memo.sender : names[0] ?? 'main');
+    return c.json({ predictions: predictAll(store.list(owner), store.titles(), r, { agentOf }) });
+  });
+  // By memo id of the Inbox: up to 3 other skills next to the prediction, for the chips of the Skill Suggestion card
+  // (memo 1421): the other matches of the words, then the skills of the workstream of the memo.
+  app.get('/api/skills/others', (c) => {
+    const r = needRegistry(c);
+    const names = agents.list().filter((a) => a.kind !== 'short').map((a) => a.name);
+    const agentOf = (memo) => (names.includes(memo.sender) ? memo.sender : names[0] ?? 'main');
+    return c.json({ others: othersAll(store.list(owner), r, { agentOf }) });
+  });
+  // The draft of a new agent skill for the editor of the System page, from a suggestion: the schema of the vault with
+  // the name and the description filled in. Nothing is written; the save of the System page writes it.
+  app.get('/api/skills/draft', (c) => {
+    const q = (name) => c.req.query(name);
+    return c.json(needSystem(c).draft({ name: q('name'), description: q('description'), category: q('category'), memo: q('memo') }));
   });
   app.post('/api/system/check', async (c) => {
     const s = needSystem(c);

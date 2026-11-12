@@ -1,15 +1,17 @@
 #!/bin/sh
 # Scans every file of the kit that git tracks, or would track, for personal data and secrets. Run it before you
 # publish or share your copy:
-#   npm run scan            (or: sh scripts/scan.sh)
+#   npm run scan                              (this kit)
+#   npm run scan -- ~/second-brain-starter    (another folder, for example the vault template)
 # It looks for:
 #   - the general patterns below: tokens, private keys, home folders, tailnet names, mail addresses, phone numbers;
-#   - your own patterns in app/local/scan-patterns.txt (setup writes your name, email, domain and host there), and
-#     any pattern file named as the first argument. One extended regular expression in each line, "#" for a comment.
+#   - your own patterns in app/local/scan-patterns.txt of this kit (setup writes your name, email, domain and host
+#     there). One extended regular expression in each line, "#" for a comment.
 # A line that matches an expression of scripts/scan-allow.txt (made-up values in tests and examples) or of
 # app/local/scan-allow.txt is not a finding. The scan of the commits of a push is app/scripts/pre-push-scan.sh.
 set -eu
-root="$(cd "$(dirname "$0")/.." && pwd)"
+kit="$(cd "$(dirname "$0")/.." && pwd)"
+root="$(cd "${1:-$kit}" && pwd)"
 cd "$root"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
@@ -31,13 +33,13 @@ tskey-[a-z]+-[A-Za-z0-9-]{10,}
 (^|[^0-9.])(\+1[ .-]?)?\(?[0-9]{3}\)?[ .-][0-9]{3}[ .-][0-9]{4}([^0-9]|$)
 \+[0-9]{10,14}([^0-9]|$)
 PATTERNS
-for extra in "app/local/scan-patterns.txt" "${1:-}"; do
+for extra in "$kit/app/local/scan-patterns.txt"; do
   [ -n "$extra" ] && [ -f "$extra" ] || continue
   # A line that still holds a [PLACEHOLDER] is not a pattern yet.
   grep -v -E '^[[:space:]]*(#|$)' "$extra" | grep -v -E '\[[A-Z][A-Z0-9]*(_[A-Z0-9]+)+\]' >> "$tmp/patterns" || true
 done
 : > "$tmp/allow"
-for allow in scripts/scan-allow.txt app/local/scan-allow.txt; do
+for allow in "$kit/scripts/scan-allow.txt" "$kit/app/local/scan-allow.txt"; do
   [ -f "$allow" ] && grep -v -E '^[[:space:]]*(#|$)' "$allow" >> "$tmp/allow" || true
 done
 [ -s "$tmp/allow" ] || echo 'a^' > "$tmp/allow"   # an expression that matches nothing

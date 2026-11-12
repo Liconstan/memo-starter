@@ -4,10 +4,14 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { VARIABLES, placeholders, render, envText, templates, variablesDoc } from '../scripts/configure.mjs';
+import { VARIABLES, placeholders, render, envText, templates, variablesDoc, vaultTemplateDir } from '../scripts/configure.mjs';
 
 // The kit itself: the registry of the variables, the setup program, and the scan for personal data.
 const KIT = join(import.meta.dirname, '..');
+// The vault template is the repository second-brain-starter, cloned next to this kit. Without it, the tests that run
+// setup cannot run, and say why.
+const VAULT_TEMPLATE = vaultTemplateDir();
+const needsVault = VAULT_TEMPLATE ? {} : { skip: 'clone second-brain-starter next to this kit (README, step 4)' };
 const setup = (...args) => spawnSync(process.execPath, [join(KIT, 'scripts', 'configure.mjs'), ...args], { encoding: 'utf8' });
 // Answers for every variable, required and optional. Made-up values at the reserved example domains.
 const ANSWERS = {
@@ -30,7 +34,7 @@ function files(dir) {
   return out;
 }
 
-test('every placeholder of the kit is in variables.json, every variable is used, and VARIABLES.md is current', () => {
+test('every placeholder of the kit is in variables.json, every variable is used, and VARIABLES.md is current', needsVault, () => {
   const r = setup('--check');
   assert.equal(r.status, 0, r.stderr + r.stdout);
   assert.match(r.stdout, /The kit is consistent/);
@@ -70,7 +74,7 @@ test('.env: a new token that stays over a second run, no placeholder on a line t
   assert.equal(envText(template, { MEMO_OWNER: 'sam', YOUR_NAME: 'Sam Rivera', YOUR_TIMEZONE: 'Europe/Lisbon', VAULT_PATH: '/v', TAILSCALE_HOST: 'mac.example.ts.net', TAILSCALE_LOGIN: 'sam@example.org' }, second), second, 'a third run changes nothing');
 });
 
-test('setup with every answer leaves no placeholder in any file it writes, and writes files that parse', () => {
+test('setup with every answer leaves no placeholder in any file it writes, and writes files that parse', needsVault, () => {
   const target = mkdtempSync(join(tmpdir(), 'kit-target-'));
   const r = setup('--target', target, '--answers', answersFile(ANSWERS), '--strict');
   assert.equal(r.status, 0, r.stderr + r.stdout);
@@ -110,7 +114,7 @@ test('setup with every answer leaves no placeholder in any file it writes, and w
   assert.ok(!readFileSync(join(target, 'my-setup', 'answers.json'), 'utf8').includes('MEMO_TOKEN'), 'the token is not in the answers');
 });
 
-test('setup is safe to run again: nothing changes, a changed answer goes in, and a file that somebody edited stays', () => {
+test('setup is safe to run again: nothing changes, a changed answer goes in, and a file that somebody edited stays', needsVault, () => {
   const target = mkdtempSync(join(tmpdir(), 'kit-rerun-'));
   const required = Object.fromEntries(VARIABLES.filter((v) => v.required && v.kind !== 'generated').map((v) => [v.name, ANSWERS[v.name]]));
   const first = setup('--target', target, '--answers', answersFile(required));
@@ -141,7 +145,7 @@ test('setup is safe to run again: nothing changes, a changed answer goes in, and
   assert.equal(/^MEMO_TOKEN=(.+)$/m.exec(readFileSync(env, 'utf8'))[1], /^MEMO_TOKEN=(.+)$/m.exec(before[env])[1], 'the token stays');
 });
 
-test('with no answers, setup lists each required placeholder that is left, and --strict fails', () => {
+test('with no answers, setup lists each required placeholder that is left, and --strict fails', needsVault, () => {
   const target = mkdtempSync(join(tmpdir(), 'kit-empty-'));
   const r = setup('--target', target, '--defaults', '--strict');
   assert.equal(r.status, 1);
@@ -149,19 +153,26 @@ test('with no answers, setup lists each required placeholder that is left, and -
   for (const name of ['YOUR_NAME', 'YOUR_ORG', 'YOUR_EMAIL']) assert.match(r.stdout, new RegExp(`\\[${name}\\]`));
 });
 
-test('the kit holds no personal data of the person it was copied from, and no secret', () => {
-  const r = spawnSync('sh', [join(KIT, 'scripts', 'scan.sh')], { encoding: 'utf8' });
-  assert.equal(r.status, 0, r.stderr + r.stdout);
-  assert.match(r.stdout, /scan: clean/);
-  // The names are put together here, so this file does not hold them.
-  const words = [['con', 'stance'], ['sent', 'ient'], ['licon', 'stan'], ['tailecf', '9df'], ['just', 'mydoc'], ['second', '_brain']].map((p) => p.join(''));
+test('the two repositories hold no personal data of the person they were copied from, and no secret', () => {
+  for (const folder of [KIT, ...(VAULT_TEMPLATE ? [join(VAULT_TEMPLATE, '..')] : [])]) {
+    const r = spawnSync('sh', [join(KIT, 'scripts', 'scan.sh'), folder], { encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr + r.stdout);
+    assert.match(r.stdout, /scan: clean/);
+  }
+  // The names are put together here, so this file does not hold them. The one exception is the address of the two
+  // template repositories, which names the account that publishes them.
+  const words = [['con', 'stance'], ['sent', 'ient'], ['licon', 'stan'], ['tailecf', '9df'], ['just', 'mydoc'], ['second', '_brain'], ['goals', 'won'], ['apple ', 'health']].map((p) => p.join(''));
   const pattern = new RegExp(words.join('|'), 'i');
-  const tracked = execFileSync('git', ['ls-files', '-co', '--exclude-standard'], { cwd: KIT, encoding: 'utf8' }).split('\n').filter(Boolean);
-  for (const f of tracked) {
-    if (/\.(png|mov|mp4)$/.test(f) || f === join('app', 'package-lock.json')) continue;
-    const text = readFileSync(join(KIT, f), 'utf8');
-    const hit = text.split('\n').findIndex((line) => pattern.test(line));
-    assert.equal(hit, -1, `${f}:${hit + 1} names the person or the organisation this kit was copied from`);
-    assert.doesNotMatch(f, pattern);
+  const allowed = new RegExp(`github\\.com/${['Licon', 'stan'].join('')}/(memo-starter|second-brain-starter)`, 'g');
+  const allowRule = new RegExp(`github\\\\\\.com/${['Licon', 'stan'].join('')}/`);
+  for (const folder of [KIT, ...(VAULT_TEMPLATE ? [join(VAULT_TEMPLATE, '..')] : [])]) {
+    const tracked = execFileSync('git', ['ls-files', '-co', '--exclude-standard'], { cwd: folder, encoding: 'utf8' }).split('\n').filter((f) => f && existsSync(join(folder, f)));
+    for (const f of tracked) {
+      if (/\.(png|mov|mp4)$/.test(f) || f === join('app', 'package-lock.json')) continue;
+      const lines = readFileSync(join(folder, f), 'utf8').split('\n');
+      const hit = lines.findIndex((line) => !allowRule.test(line) && pattern.test(line.replace(allowed, '')));
+      assert.equal(hit, -1, `${folder}/${f}:${hit + 1} names the person or the organisation this kit was copied from`);
+      assert.doesNotMatch(f, pattern);
+    }
   }
 });

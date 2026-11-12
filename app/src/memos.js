@@ -691,6 +691,18 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     return out;
   }
 
+  // The titles of the last memos to the owner, open or not, the newest first: { id, ws, title, created }. For the
+  // skill suggestion (src/registry.js), which looks for titles that repeat in a workstream. No text of a memo.
+  function titles(limit = 500) {
+    return db.prepare(`SELECT id, ws, title, created FROM memos WHERE recipient = ? AND title IS NOT NULL AND title != '' ORDER BY id DESC LIMIT ?`).all(owner, limit);
+  }
+
+  // The memos that are not open, with the time they closed and their words in small letters (the title, the text, the
+  // reply): for the day a skill was last named (src/skilllog.js lastNamed). Read on the computer only, by the registry.
+  function closedTexts(limit = 5000) {
+    return db.prepare(`SELECT closed, lower(coalesce(title, '') || ' ' || text || ' ' || coalesce(reply, '')) AS text FROM memos WHERE state != 'open' AND closed IS NOT NULL ORDER BY id DESC LIMIT ?`).all(limit);
+  }
+
   // The memos to the owner that she replied to or closed in the last 7 days, the last answered first.
   // For the Answered view of the Inbox, so she can find a memo that left it. At most 50.
   function answered() {
@@ -778,5 +790,5 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
   const holdsOpen = (fragment) => db.prepare(`SELECT COUNT(*) AS n FROM memos m WHERE m.state = 'open' AND (instr(m.text, ?) > 0
     OR instr(coalesce(m.reply, ''), ?) > 0 OR EXISTS (SELECT 1 FROM notes WHERE memo_id = m.id AND instr(text, ?) > 0))`).get(fragment, fragment, fragment).n > 0;
 
-  return { get, send, reply, close, edit, brief, note, compact, seen, check, adjust, ack, forward, tag, postpone, postponed, answered, list, fired, undelivered, move, news, search, archive, corrections, counts, draft, drafts, thread, threads, holdsOpen, inboxLoaded, timeZone, workstreams };
+  return { get, send, reply, close, edit, brief, note, compact, seen, check, adjust, ack, forward, tag, postpone, postponed, answered, titles, closedTexts, list, fired, undelivered, move, news, search, archive, corrections, counts, draft, drafts, thread, threads, holdsOpen, inboxLoaded, timeZone, workstreams };
 }

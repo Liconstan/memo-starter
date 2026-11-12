@@ -607,7 +607,7 @@ test('the Inbox has a Refresh button, loads again when it comes to the front, an
   assert.match(page, /document\.addEventListener\('visibilitychange', \(\) => \{ if \(document\.visibilityState === 'visible'\) refresh\(\); \}\);/);
   assert.match(page, /addEventListener\('pageshow', \(event\) => \{ if \(event\.persisted\) refresh\(\); \}\);/);
   // A reply field she typed in during the last seconds holds the list (the busy rule of the drafts); the poll comes after.
-  assert.match(page, /function refresh\(\) \{\n  if \(openId !== null && busy\(String\(openId\)\)\) return Promise\.resolve\(\);\n  polled = Date\.now\(\);\n  return Promise\.all\(\[load\(\), loadAgents\(\), loadCalendar\(\)\]\);\n\}/);
+  assert.match(page, /function refresh\(\) \{\n  if \(openId !== null && busy\(String\(openId\)\)\) return Promise\.resolve\(\);\n  polled = Date\.now\(\);\n  return Promise\.all\(\[load\(\), loadAgents\(\), loadCalendar\(\), loadMeeting\(\)\]\);\n\}/);
   // A new list keeps the focus and the cursor of a reply field.
   assert.match(page, /const keep = active\?\.tagName === 'TEXTAREA' && active\.closest\('\.memo'\)/);
   assert.match(page, /area\.focus\(\{ preventScroll: true \}\); area\.setSelectionRange\(keep\.start, keep\.end\);/);
@@ -819,11 +819,12 @@ test('the Inbox opens the memo of a link from the Agents page, and shows the sam
 
 // Memo 912, layout 1: the counts line and the agent strip replace the four counters, the Due soon card, the Agents
 // card and the Postponed card.
-test('the banner has the greeting and the date only; the head of the list has the unread and postponed counts as quiet buttons', async () => {
+test('the banner has the greeting, the clock, the date and the next meeting, and no counts; the head of the list has the unread and postponed counts as quiet buttons', async () => {
   const page = (await get('/inbox')).text;
   // No counts line in the banner (memo SYS-5).
   for (const word of ['id="lead"', 'class="lead', "agents' court", 'const theirs', "'need you'", 'new or updated']) assert.ok(!page.includes(word), `the Inbox must not have ${word}`);
-  assert.match(page, /<p class="eyebrow" id="greeting">Hello,<\/p>\n    <h1 class="cap">cam<\/h1>\n  <\/div>\n  <div class="hero-date" id="hero-date"><\/div>/);
+  // Memo 1422: the clock is the largest thing, the date is under it, then the next meeting.
+  assert.match(page, /<div class="hero-time">\n    <h1 class="hero-hello"><span id="greeting">Hello,<\/span> <span class="cap">cam<\/span><\/h1>\n    <p class="hero-clock" id="hero-clock"><\/p>\n    <p class="hero-date" id="hero-date"><\/p>\n  <\/div>\n  <div class="hero-next" id="hero-next" hidden><\/div>/);
   // The head of the list: "12 memos · 7 unread · 3 postponed", a count of 0 left out.
   assert.match(page, /const parts = \[countText\(list\.length, memos\.length, filtered\)\];/);
   // Unread: the memos she did not open plus the memos that changed since she saw them, as the old "fresh" count.

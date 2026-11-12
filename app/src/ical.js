@@ -295,8 +295,9 @@ function notGoing(ev, self) {
 // attendees (the other people), organizer (not the owner) and link are for the detail that opens on a click on an event
 // in the Today card. The address of the owner is in no answer.
 // options.uid: true adds uid, the UID of the event, for the meeting follow-ups (src/followups.js). The Today card
-// does not ask for it.
-export function eventsOn(calendar, date, zone, { self: owner = '', uid: withUid = false } = {}) {
+// does not ask for it. options.description: true adds description, the text of the invite, for the meeting brief of the
+// Inbox (src/meeting.js); it can hold her prep notes, so no other caller asks for it.
+export function eventsOn(calendar, date, zone, { self: owner = '', uid: withUid = false, description: withDescription = false } = {}) {
   const cal = typeof calendar === 'string' ? parseCalendar(calendar) : calendar;
   const [y, mo, d] = date.split('-').map(Number);
   const day = dayOf(y, mo, d);
@@ -328,6 +329,7 @@ export function eventsOn(calendar, date, zone, { self: owner = '', uid: withUid 
       organizer: organizerOf(ev, self),
       link: linkOf(ev),
       ...(withUid ? { uid: textOf(ev, 'UID') } : {}),
+      ...(withDescription ? { description: textOf(ev, 'DESCRIPTION') } : {}),
     };
     if (startT.allDay) {
       const end = startT.day + Math.max(1, durDays);

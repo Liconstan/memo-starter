@@ -1,0 +1,8 @@
+#!/bin/sh
+# Keeps the text a skill has now as an old version, before you edit the skill by hand:
+#   scripts/skill-version <name>
+# It copies skills/agent/<name>/SKILL.md (or skills/<name>/SKILL.md) of the vault to
+# skills/.versions/<name>/<YYYY-MM-DD-HHMM>-<hash8>.md and prints the path. Commit that file with your edit.
+root="$(cd "$(dirname "$0")/.." && pwd)"
+. "$root/scripts/_node.sh"
+exec node "$root/scripts/skill-version.mjs" "$@"

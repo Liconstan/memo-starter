@@ -14,7 +14,10 @@
 //   my-setup/answers.json              your answers (git ignores my-setup/). The token is never in it.
 //   app/.env                           from app/.env.example. An existing .env keeps its token and its other lines.
 //   app/local/...                      from templates/local/: the agents, the workstreams, the charter, the permissions.
-//   <VAULT_PATH>/...                   from vault-template/: only files that are not there yet, or that nobody changed.
+//   <VAULT_PATH>/...                   from vault/ of second-brain-starter: only files that are not there yet, or
+//                                      that nobody changed.
+// The vault template: --vault-template <folder>, or MEMO_VAULT_TEMPLATE, or ../second-brain-starter/vault next to this
+// kit (the README clones the two repositories side by side).
 //   my-setup/launchd/*.plist           from templates/launchd/, to copy to ~/Library/LaunchAgents (README, steps 6 and 13).
 //   my-setup/README.md                 the README with your names and addresses filled in.
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -98,10 +101,20 @@ const destName = (rel) => rel.split(sep).map((part) => (part === 'dot-gitignore'
 // Every template: { from (in the kit), to (root name), dest (path under that root), mode }.
 //   env: merged into app/.env. managed: written when missing or untouched since setup wrote it.
 //   generated: written again on every run (my-setup/).
+// The folder of the vault template, or null when it is not there.
+export function vaultTemplateDir() {
+  const given = option('vault-template') || process.env.MEMO_VAULT_TEMPLATE;
+  const places = given ? [resolve(home(given))] : [join(KIT, '..', 'second-brain-starter', 'vault')];
+  return places.find((d) => existsSync(join(d, 'CLAUDE.md'))) || null;
+}
+const NO_VAULT_TEMPLATE = 'The vault template is not there. Clone the repository second-brain-starter next to this folder, so that\n'
+  + `${join(KIT, '..', 'second-brain-starter', 'vault')} exists (README, step 4), or give its folder with --vault-template <folder>.`;
 export function templates() {
   const out = [{ from: join('app', '.env.example'), root: 'app', dest: '.env', mode: 'env' }];
   for (const rel of walk(join(KIT, 'templates', 'local'))) out.push({ from: join('templates', 'local', rel), root: 'app', dest: join('local', rel), mode: 'managed' });
-  for (const rel of walk(join(KIT, 'vault-template'))) out.push({ from: join('vault-template', rel), root: 'vault', dest: destName(rel), mode: 'managed' });
+  const vt = vaultTemplateDir();
+  // `from` is relative to the kit, so a vault file is ../second-brain-starter/vault/<file>.
+  if (vt) for (const rel of walk(vt)) out.push({ from: relative(KIT, join(vt, rel)), root: 'vault', dest: destName(rel), mode: 'managed' });
   for (const rel of walk(join(KIT, 'templates', 'launchd'))) out.push({ from: join('templates', 'launchd', rel), root: 'out', dest: join('launchd', rel), mode: 'generated' });
   out.push({ from: 'README.md', root: 'out', dest: 'README.md', mode: 'generated' });
   out.push({ from: join('app', 'docs', 'gpt-desktop.md'), root: 'out', dest: 'gpt-desktop.md', mode: 'generated' });
@@ -126,7 +139,7 @@ export function variablesDoc() {
   const cell = (s) => String(s ?? '').replace(/\|/g, '\\|').replace(/\n/g, ' ');
   const lines = [
     '# Variables', '',
-    'Every placeholder of the kit, in one list. This file is made from `variables.json` by `npm run setup -- --docs`; change that file, not this one.', '',
+    'Every placeholder of the kit and of its vault template (the repository second-brain-starter), in one list. This file is made from `variables.json` by `npm run setup -- --docs`; change that file, not this one.', '',
     '**How to read a placeholder.** A name in capitals in square brackets, for example `[YOUR_NAME]`, stands for a value that only you know. `npm run setup` asks you for each one and fills it in everywhere. You do not edit the files by hand.', '',
     '- **Required**: setup asks until it has a value (most have a default; press Return to take it).',
     '- **Optional**: press Return to skip it. The placeholder then stays in the files in capitals, setup lists it at its end, and an agent that meets it asks you once by memo.',
@@ -138,7 +151,8 @@ export function variablesDoc() {
     lines.push(`## ${group}`, '', '| Placeholder | What it means | Example | Required | Default | Used in |', '|---|---|---|---|---|---|');
     for (const v of VARIABLES.filter((x) => x.group === group)) {
       const files = used.get(v.name) || [];
-      lines.push(`| \`[${v.name}]\` | ${cell(v.meaning)} | ${cell(v.example)} | ${v.kind === 'generated' ? 'made by setup' : v.required ? 'required' : 'optional'} | ${cell(v.defaultValue ?? v.default ?? 'none')} | ${files.map((f) => `\`${f}\``).join(', ') || 'not used'} |`);
+      const shown = files.map((f) => (f.startsWith(`..${sep}`) ? f.split(sep).slice(1).join('/') : f));
+      lines.push(`| \`[${v.name}]\` | ${cell(v.meaning)} | ${cell(v.example)} | ${v.kind === 'generated' ? 'made by setup' : v.required ? 'required' : 'optional'} | ${cell(v.defaultValue ?? v.default ?? 'none')} | ${shown.map((f) => `\`${f}\``).join(', ') || 'not used'} |`);
     }
     lines.push('');
   }
@@ -280,6 +294,7 @@ function leftovers(files) {
 }
 
 async function main() {
+  if (!vaultTemplateDir()) { console.error(NO_VAULT_TEMPLATE); process.exit(1); }
   if (flag('docs')) { writeFileSync(join(KIT, 'VARIABLES.md'), variablesDoc()); console.log('VARIABLES.md is written.'); return; }
   if (flag('check')) {
     const { used, problems } = checkKit();

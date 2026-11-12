@@ -24,7 +24,7 @@ const CONFIG = [
 // schedulePath: by default a file that is not there, so the tests never read the real local/schedule.json.
 // dataDir: a new directory for data/client-tz.json. calendarUrl and getCalendar: a calendar with no network.
 export function makeApp({ tailscale, config = CONFIG, ticksOn = true, schedulePath = join(tmpdir(), 'memo-no-schedule', 'schedule.json'),
-  dataDir = mkdtempSync(join(tmpdir(), 'memo-data-')), calendarUrl, getCalendar = () => { throw new Error('no network in tests'); }, now, ledgerPage, onDraft, started, system,
+  dataDir = mkdtempSync(join(tmpdir(), 'memo-data-')), calendarUrl, getCalendar = () => { throw new Error('no network in tests'); }, now, ledgerPage, onDraft, started, system, registry, meetings,
   // videos: a store in a new folder with the clock of the app. frames: none by default (the Swift tool is slow to build);
   // test/videos.test.js gives a fake one.
   frames,
@@ -40,7 +40,7 @@ export function makeApp({ tailscale, config = CONFIG, ticksOn = true, schedulePa
   const files = createFiles(mkdtempSync(join(tmpdir(), 'memo-files-')));
   const videos = createVideos({ dir: mkdtempSync(join(tmpdir(), 'memo-videos-')), ...(now ? { now } : {}), log: () => {} });
   const ticks = createTicks(db);
-  const app = createApp({ store, agents, images, files, videos, frames, ticks, ticksOn, system, root: ROOT, token: TOKEN, liaisonToken: LIAISON_TOKEN, owner: 'cam', tailscale, schedulePath, dataDir, calendarUrl, getCalendar, ledgerPage, onDraft, petsDir, ...(now ? { now } : {}), ...(started ? { started } : {}) });
+  const app = createApp({ store, agents, images, files, videos, frames, ticks, ticksOn, system, registry, meetings: typeof meetings === 'function' ? meetings({ db, store, agents }) : meetings, root: ROOT, token: TOKEN, liaisonToken: LIAISON_TOKEN, owner: 'cam', tailscale, schedulePath, dataDir, calendarUrl, getCalendar, ledgerPage, onDraft, petsDir, ...(now ? { now } : {}), ...(started ? { started } : {}) });
   return { app, db, store, agents, images, files, videos, ticks, sessions, sends, dataDir };
 }
 

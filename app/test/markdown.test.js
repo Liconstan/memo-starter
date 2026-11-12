@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parse, inline, frameDocument, checkBoxes, setCheckBox, summary, render, copyText } from '../ui/markdown.js';
+import { parse, inline, frameDocument, checkBoxes, setCheckBox, summary, render, copyText, diffRows, diffLines, diffHunks, diffWords, diffSummary, DOC_LINK, swapLabel, SWAP_WORDS, docLinkOf } from '../ui/markdown.js';
 import { makeApp } from './helpers.js';
 
 test('plain text is one paragraph and keeps its line breaks', () => {
@@ -253,4 +253,150 @@ test('a quote contains its copy button, so a quote of one line does not let the 
   assert.match(css, /\.md blockquote:has\(\.copy\) \{ display: flow-root; \}/);
   // The copy control is an icon with no frame.
   assert.match(css, /\.md \.copy \{[^}]*border: 0; background: none;/);
+});
+
+// ---------- memo 1513: a change as removed and added lines, and a link to a rule document ----------
+const textOf = (n) => (typeof n === 'string' ? n : (n?.children || []).map(textOf).join(''));
+
+test('a diff block gives rows: - is removed, + is added, the rest is context, and the head lines of git are left out (memo 1513)', () => {
+  assert.deepEqual(diffRows(' keep\n-old line\n+new line\n keep too'), [
+    { t: 'ctx', text: 'keep' }, { t: 'del', text: 'old line' }, { t: 'add', text: 'new line' }, { t: 'ctx', text: 'keep too' }]);
+  // The way an agent writes it by hand, with a space after each sign: the space is not part of the text.
+  assert.deepEqual(diffRows('- Ask before each payment.\n+ Ask before each payment over 50 dollars.\n  The rest stays.'), [
+    { t: 'del', text: 'Ask before each payment.' }, { t: 'add', text: 'Ask before each payment over 50 dollars.' }, { t: 'ctx', text: 'The rest stays.' }]);
+  // A diff of git: no file names, and @@ is a gap between two places.
+  const git = 'diff --git a/x.md b/x.md\nindex 1a2b3c4..5d6e7f8 100644\n--- a/x.md\n+++ b/x.md\n@@ -1,2 +1,2 @@\n one\n-two\n+2\n@@ -9 +9 @@\n-nine\n+9\n\\ No newline at end of file';
+  assert.deepEqual(diffRows(git).map((r) => `${r.t}:${r.text ?? ''}`), ['ctx:one', 'del:two', 'add:2', 'gap:', 'del:nine', 'add:9']);
+  // A removed list item keeps its own dash.
+  assert.deepEqual(diffRows('-- an item\n+- the item'), [{ t: 'del', text: '- an item' }, { t: 'add', text: '- the item' }]);
+  // Only a block with the language diff is a diff: every other block is code, as before.
+  assert.deepEqual(parse('```diff\n-a\n+b\n```').map((b) => b.type), ['diff']);
+  assert.deepEqual(parse('```DIFF\n-a\n```')[0].rows, [{ t: 'del', text: 'a' }]);
+  assert.deepEqual(parse('```sh\n-a\n+b\n```'), [{ type: 'pre', text: '-a\n+b' }]);
+  assert.deepEqual(parse('```\n-a\n```'), [{ type: 'pre', text: '-a' }]);
+});
+
+test('a diff block shows as a part "Removed:" and a part "Added:", in words and not only in colors (memo 1513)', () => {
+  const nodes = render('The change:\n\n```diff\n One question per memo.\n- Ask before each payment.\n+ Ask before each payment over 50 dollars.\n```', fakeEl);
+  const box = nodes[1];
+  assert.equal(box.className, 'diff');
+  assert.equal(box.attributes.role, 'group');
+  assert.equal(box.attributes['aria-label'], 'Change: 1 line removed, 1 line added');
+  assert.deepEqual(box.children.map((n) => n.className), ['diff-ctx', 'diff-part del', 'diff-part add']);
+  const [, removed, added] = box.children;
+  // The word comes first in each part, as text of the page: a screen reader says it before the lines.
+  assert.deepEqual([removed.children[0].tag, textOf(removed.children[0])], ['b', 'Removed:']);
+  assert.deepEqual([added.children[0].tag, textOf(added.children[0])], ['b', 'Added:']);
+  assert.equal(textOf(removed), 'Removed:Ask before each payment.');
+  assert.equal(textOf(added), 'Added:Ask before each payment over 50 dollars.');
+  assert.deepEqual([removed.children[1].children[0].tag, added.children[1].children[0].tag], ['del', 'ins']);
+  // The words that differ have a mark; the words that stay have none.
+  assert.deepEqual(find([added], (n) => n.className === 'diff-word').map(textOf), ['payment over 50 dollars.']);
+  assert.deepEqual(find([removed], (n) => n.className === 'diff-word').map(textOf), ['payment.']);
+  // The text goes in as text: markup in a diff stays text, and a diff has no link and no button.
+  const raw = render('```diff\n+<img src=x onerror=alert(1)> **bold** [a](https://example.org)\n```', fakeEl)[0];
+  assert.equal(textOf(raw), 'Added:<img src=x onerror=alert(1)> **bold** [a](https://example.org)');
+  assert.deepEqual(find([raw], (n) => ['a', 'img', 'button', 'strong'].includes(n.tag)), []);
+  // Several lines of one kind are one part; a gap says that lines are left out.
+  const two = render('```diff\n-a\n-b\n@@\n+c\n```', fakeEl)[0];
+  assert.deepEqual(two.children.map((n) => n.className), ['diff-part del', 'diff-gap', 'diff-part add']);
+  assert.equal(textOf(two.children[0]), 'Removed:a\nb');
+  assert.equal(diffSummary([{ t: 'del' }, { t: 'del' }, { t: 'add' }]), 'Change: 2 lines removed, 1 line added');
+});
+
+test('the change between two texts: the lines, the lines near a change, and the words (memo 1513)', () => {
+  const before = 'one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\n';
+  const after = 'one\ntwo\nthree\nfour\nFIVE\nsix\nseven\neight\nnine\nten\n';
+  const rows = diffLines(before, after);
+  assert.deepEqual(rows.filter((r) => r.t !== 'ctx'), [{ t: 'del', text: 'five' }, { t: 'add', text: 'FIVE' }, { t: 'add', text: 'ten' }]);
+  assert.equal(rows.filter((r) => r.t === 'ctx').length, 8, 'the end of a file is no line of its own');
+  assert.deepEqual(diffHunks(rows, 1).map((r) => (r.t === 'gap' ? `gap ${r.count}` : `${r.t} ${r.text}`)),
+    ['gap 3', 'ctx four', 'del five', 'add FIVE', 'ctx six', 'gap 2', 'ctx nine', 'add ten']);
+  assert.deepEqual(diffHunks(diffLines(before, before)), [], 'no change, no rows');
+  assert.deepEqual(diffLines('', 'a\nb'), [{ t: 'del', text: '' }, { t: 'add', text: 'a' }, { t: 'add', text: 'b' }]);
+  assert.deepEqual(diffLines('a\nb\nc', 'a\nc').map((r) => r.t), ['ctx', 'del', 'ctx']);
+  // Two texts too long to compare line by line: all removed, then all added, and never an error.
+  const long = (word) => Array.from({ length: 1600 }, (_, i) => `${word} ${i}`).join('\n');
+  const big = diffLines(long('a'), long('b'));
+  assert.deepEqual([big.length, big[0].t, big.at(-1).t], [3200, 'del', 'add']);
+  // The words: marks where most words stay, none where the two texts share little.
+  assert.deepEqual(diffWords('Send the memo on Monday.', 'Send the memo on Tuesday morning.'), {
+    del: [{ text: 'Send the memo on ', on: false }, { text: 'Monday.', on: true }],
+    add: [{ text: 'Send the memo on ', on: false }, { text: 'Tuesday morning.', on: true }] });
+  assert.equal(diffWords('A whole new rule.', 'Nothing of it is left'), null);
+});
+
+test('a link to a rule document of the System page is a link that the Inbox opens in a dialog; other addresses stay text (memo 1513)', () => {
+  for (const href of ['/system#file=charter:team&edit=1', '/system#file=charter:cloud', '/system#file=lessons&edit=1', '/system#file=lessons',
+    '/system#file=skill:email-reply-drafts&edit=1', '/system#file=hand:botec']) assert.ok(DOC_LINK.test(href), href);
+  for (const href of ['/system', '/system#h-skills', '/system#file=map', '/system#file=charter:', '/system#file=skill:../x', '/system#file=lessons&edit=1&x=1',
+    '/inbox#file=lessons', '//evil.test/system#file=lessons', 'javascript:alert(1)', '/system#new=daily-review']) assert.ok(!DOC_LINK.test(href), href);
+  assert.deepEqual(inline('I changed [the team charter](/system#file=charter:team&edit=1).'), [
+    { t: 'text', text: 'I changed ' }, { t: 'doc', text: 'the team charter', href: '/system#file=charter:team&edit=1' }, { t: 'text', text: '.' }]);
+  assert.deepEqual(inline('[x](/system#h-skills)'), [{ t: 'text', text: '[x](/system#h-skills)' }]);
+  const [p] = render('See [the lessons](/system#file=lessons&edit=1) and [a page](https://example.org).', fakeEl);
+  const [doc, web] = find([p], (n) => n.tag === 'a');
+  assert.deepEqual([doc.href, doc.className, doc.target, textOf(doc)], ['/system#file=lessons&edit=1', 'doc-link', undefined, 'the lessons']);
+  assert.equal(web.target, '_blank', 'a web link opens in a new tab, as before');
+  assert.equal(summary('[the team charter](/system#file=charter:team&edit=1) has a new rule'), 'the team charter has a new rule');
+});
+
+// ---------- memo 1523: the text to replace and the new text ----------
+test('an old block is a box "Now (the text to replace)" and a new block a box "New text, copy this" with a copy button for its text alone (memo 1523)', async () => {
+  const text = 'In the charter:\n\n```old lines 113-115\n- Ask before each payment.\n+ a plus stays text\n```\n\n```new\n- Ask before each payment over 50 dollars.\n  <b>second</b> line\n```';
+  assert.deepEqual(parse(text).slice(1), [
+    { type: 'old', text: '- Ask before each payment.\n+ a plus stays text', lines: { from: 113, to: 115 } },
+    { type: 'new', text: '- Ask before each payment over 50 dollars.\n  <b>second</b> line', lines: null }]);
+  // The line range: a range, one line, the word "to"; with none, the words alone.
+  assert.deepEqual([SWAP_WORDS.old, SWAP_WORDS.new], ['Now (the text to replace)', 'New text, copy this']);
+  assert.equal(swapLabel('old', { from: 113, to: 115 }), 'Now (the text to replace) · Lines 113 to 115');
+  assert.equal(swapLabel('new', { from: 40, to: 40 }), 'New text, copy this · Line 40');
+  assert.equal(swapLabel('new'), 'New text, copy this');
+  assert.deepEqual(parse('```new lines 3 to 9\nx\n```')[0].lines, { from: 3, to: 9 });
+  assert.deepEqual(parse('```OLD line 7\nx\n```')[0], { type: 'old', text: 'x', lines: { from: 7, to: 7 } });
+  // Anything else after the word is a code block, as before, and so is every other language.
+  assert.deepEqual(parse('```old text\nx\n```'), [{ type: 'pre', text: 'x' }]);
+  assert.deepEqual(parse('```newer\nx\n```'), [{ type: 'pre', text: 'x' }]);
+  assert.deepEqual(parse('```diff\n-a\n+b\n```')[0].type, 'diff', 'the diff block stays');
+  const [, was, now] = render(text, fakeEl);
+  assert.deepEqual([was.className, now.className], ['swap old', 'swap new']);
+  // The words are text of the page and the name of the group: a screen reader says them, whatever the color.
+  assert.deepEqual([was.children[0].tag, textOf(was.children[0])], ['b', 'Now (the text to replace) · Lines 113 to 115']);
+  assert.deepEqual([now.children[0].tag, textOf(now.children[0])], ['b', 'New text, copy this']);
+  assert.deepEqual([was.attributes.role, was.attributes['aria-label']], ['group', 'Now (the text to replace) · Lines 113 to 115']);
+  assert.deepEqual([now.attributes.role, now.attributes['aria-label']], ['group', 'New text, copy this']);
+  // The text goes in as it is: no sign is taken off, and markup stays text.
+  assert.equal(textOf(find([was], (n) => n.tag === 'pre')[0]), '- Ask before each payment.\n+ a plus stays text');
+  assert.equal(textOf(find([now], (n) => n.tag === 'pre')[0]), '- Ask before each payment over 50 dollars.\n  <b>second</b> line');
+  assert.deepEqual(find([was, now], (n) => ['a', 'img', 'strong'].includes(n.tag)), []);
+  // Only the new text has a copy button, and it copies the text of the box alone: no label, no fence.
+  assert.equal(find([was], (n) => n.className === 'copy').length, 0);
+  const [copy] = find([now], (n) => n.className === 'copy');
+  const copied = [];
+  const before = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  Object.defineProperty(globalThis, 'navigator', { value: { clipboard: { writeText: async (t) => { copied.push(t); } } }, configurable: true });
+  try {
+    await copy.handlers.click({ stopPropagation() {} });
+  } finally {
+    if (before) Object.defineProperty(globalThis, 'navigator', before); else delete globalThis.navigator;
+  }
+  assert.deepEqual(copied, ['- Ask before each payment over 50 dollars.\n  <b>second</b> line']);
+  assert.equal(copy.attributes['aria-label'], 'Copied');
+});
+
+test('a whole address of a rule document is a link of the dialog, with link text or bare; any other web address opens a new tab (memo 1523)', () => {
+  const full = 'https://mac.tail.ts.net:8443/system#file=charter:team&edit=1';
+  assert.equal(docLinkOf(full), '/system#file=charter:team&edit=1');
+  assert.equal(docLinkOf('http://127.0.0.1:3280/system#file=lessons'), '/system#file=lessons');
+  assert.equal(docLinkOf('https://memo.example.org/system#file=lessons', 'https://memo.example.org'), '/system#file=lessons');
+  assert.equal(docLinkOf('https://memo.example.org/system#file=lessons', 'https://other.example.org'), null);
+  assert.equal(docLinkOf('https://mac.tail.ts.net:8443/system#h-skills'), null);
+  assert.equal(docLinkOf('/system#file=lessons'), '/system#file=lessons');
+  assert.deepEqual(inline(`I changed [the team charter](${full}).`), [{ t: 'text', text: 'I changed ' }, { t: 'doc', text: 'the team charter', href: full }, { t: 'text', text: '.' }]);
+  // Bare, at the end of a sentence: the full stop is not part of the address.
+  assert.deepEqual(inline(`See ${full}.`), [{ t: 'text', text: 'See ' }, { t: 'doc', text: full, href: full }, { t: 'text', text: '.' }]);
+  const [p] = render(`[the team charter](${full}) and https://example.org/system#file=lessons`, fakeEl);
+  const [doc, web] = find([p], (n) => n.tag === 'a');
+  assert.deepEqual([doc.className, doc.href, doc.target], ['doc-link', full, undefined]);
+  assert.deepEqual([web.className, web.target], [undefined, '_blank']);
 });

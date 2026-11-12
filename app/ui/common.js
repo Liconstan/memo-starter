@@ -71,6 +71,18 @@ export async function api(path, body, { keepalive = false } = {}) {
   return data;
 }
 
+// A POST whose answer is a file (memo 1442): the answer is its Blob. Only on the pages
+// of the computer; the GitHub copy has no such file.
+export async function apiFile(path, body = {}) {
+  if (globalThis.MEMO_LEDGER) throw new Error('This works only on the pages of your Mac.');
+  const response = await fetch(path, { method: 'POST', headers: { Authorization: `Bearer ${readToken()}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body), cache: 'no-store' });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || `The request failed with status ${response.status}.`);
+  }
+  return response.blob();
+}
+
 export function tokenForm(onSaved) {
   const form = document.getElementById('token-form');
   form.addEventListener('submit', (event) => {

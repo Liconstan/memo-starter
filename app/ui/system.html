@@ -65,12 +65,15 @@
     </section>
     <section class="card" aria-labelledby="h-skills" style="margin-top:1rem">
       <div class="card-head"><h2 id="h-skills">Agent skills</h2></div>
-      <p class="sys-note">How to do one kind of task the way you want it. Written and kept by the agents.</p>
+      <p class="sys-note">How to do one kind of task the way you want it. Written and kept by the agents. The pencil opens a skill to edit it, to rate it, and to see its old versions.</p>
+      <p id="skill-summary" class="skill-summary" role="status" hidden></p>
+      <div id="skill-filter" class="skill-filter" role="group" aria-label="Show the skills of one workstream" hidden></div>
+      <div id="skill-draft"></div>
       <div id="group-skills"></div>
     </section>
     <section class="card" aria-labelledby="h-hand" style="margin-top:1rem">
       <div class="card-head"><h2 id="h-hand">Hand-made skills</h2></div>
-      <p class="sys-note">Pinned copies of the skills in your Claude account. View only.</p>
+      <p class="sys-note">Pinned copies of the skills in your Claude account. View only; the pencil opens one to rate it and to write what you would change. The workstream filter above applies here too.</p>
       <div id="group-hand"></div>
     </section>
   </div>
@@ -78,6 +81,7 @@
     <section class="card keys"><div class="card-head"><h2>How this page works</h2></div>
       <p class="dim">The server checks the sync every 5 minutes in the background. The page shows the last result and never waits on the network. Check now runs a check at once.</p>
       <p class="dim">A file loads when you open it. Edit opens the text in a box. Save writes the file, commits it alone, and pushes to GitHub. If an agent changed the file first, the save stops, your text stays in the box, and you can load the new version.</p>
+      <p class="dim">Each skill shows its workstream and which agents have it. A workstream marked guessed comes from the words of the skill; the line category: OPS in a skill sets it. Needs spreading means an agent does not have the skill yet. A star in the Inbox links here: an agent skill opens in the editor, a hand-made skill opens view only, and a suggested skill opens as a draft that is saved only when you save it.</p>
       <p class="dim">After a change to a charter, the lessons or a skill, from you or from an agent, the server rebuilds the map within about 10 seconds. This page loads new data every 30 seconds.</p>
     </section>
   </aside>
@@ -85,7 +89,7 @@
 </div>
 </div>
 <script type="module">
-import { api, el, button, tokenForm, note, age, ownerAvatar } from '/ui/common.js';
+import { api, apiFile, el, button, tokenForm, note, age, ownerAvatar } from '/ui/common.js';
 import { render as markdown, makeFrame } from '/ui/markdown.js';
 
 document.getElementById('owner-avatar').replaceWith(ownerAvatar('__OWNER__'));
@@ -98,6 +102,26 @@ let version = null;
 const open = new Map(); // file id -> { doc, body, hash, text, loaded, editing, draft }
 let mapFrame = null;
 let mapShownAt = null;
+// The skill registry (src/registry.js): the category of each skill and the agents that have it. null with a server
+// that has none: then the skills show as before.
+let registry = null;
+let category = 'all'; // the workstream filter of the two skill lists
+let wanted = null; // what the address asks for: one file, or the draft of a new skill
+// The words of the skill marks and the reader of the address (ui/skills.js, memo 1418). A server from before that
+// file does not give it: then the page has no marks and follows no address, and works as before.
+let skillUi = null;
+import('/ui/skills.js').then((m) => { skillUi = m; wanted = m.parseSkillHash(location.hash); followHash(); if (data) showFiles(); }).catch(() => {});
+let pendingEdit = null; // the id of a file that opens in the editor once its text is loaded
+// The skill dialog (memo 1420, ui/skillmodal.js): the pencil of a skill opens it in a dialog, the same one as in the
+// Inbox, with its editor, her rating and its old versions. An address of one file (#file=, #new=) still opens the
+// file in the page, as before. A server from before that file does not give it: then the pencil follows its address.
+import('/ui/skillmodal.js').then((m) => m.installSkillModal({ api, el, markdown, onChange: () => load() })).catch(() => {});
+// Line numbers in the editor, with a "Go to line" field (memo 1527, ui/linenumbers.js): the same ones as in the
+// dialog. A server from before that file does not give it: then the editor is the plain text box, as before.
+let lineUi = null;
+import('/ui/linenumbers.js').then((m) => { lineUi = m; }).catch(() => {});
+// The node of an editor for the page: the text box with its line numbers, or the text box alone.
+const numbered = (area) => (lineUi ? lineUi.numberedEditor(area, el).node : area);
 
 const when = (iso) => (iso ? `${age(iso)} (${new Date(iso).toLocaleString()})` : 'never');
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
@@ -197,10 +221,33 @@ function meta(doc) {
   return parts.join('. ');
 }
 
+// The marks of a skill: its workstream, and whether every agent has it. Words, not only colors.
+const skillOf = (id) => registry?.skills.find((s) => s.id === id) || null;
+function skillMarks(s) {
+  if (!s || !skillUi) return [];
+  const out = [];
+  if (s.category) out.push(el('span', { className: 'ws', title: skillUi.categoryTitle(s.category, s.categoryGuessed, registry.categories[s.category]) }, s.categoryGuessed ? `${s.category} · guessed` : s.category));
+  // Not used in the last 30 days, or never: the text may be out of date (memo 1420).
+  if (s.old) out.push(el('span', { className: 'skill-old', title: `${s.used ? `Last used ${s.used}.` : 'No use on record.'} ${skillUi.OLD_TITLE || ''}`.trim() }, skillUi.OLD_WORDS || 'Old · may change'));
+  // Her rating of the text the skill has now.
+  if (s.id && s.ratings !== undefined) out.push(el('span', { className: 'skill-rated', title: 'Your rating of the text this skill has now. The pencil opens the skill with its rating and its old versions.' }, s.rated ? `Rated ${s.lastScore} of 5` : s.ratings ? 'New version, not rated' : 'Not rated'));
+  out.push(el('span', { className: `skill-spread ${s.access === 'all' ? 'ok' : 'warn'}`, title: s.agents.length ? `Has it: ${s.agents.map((a) => registry.agents.find((r) => r.name === a)?.display || a).join(', ')}${s.cloud ? ', and the cloud agent' : ''}.` : 'No agent has it.' }, s.spread));
+  return out;
+}
+const shownInFilter = (s) => category === 'all' || !s || s.category === category;
+
 function docView(doc) {
   const details = el('details', { className: 'doc' });
   details.dataset.id = doc.id;
-  const summary = el('summary', {}, el('h3', {}, doc.title));
+  const summary = el('summary', {}, el('h3', {}, doc.title), el('span', { className: 'marks' }));
+  // The pencil of a skill: the dialog with its text, her rating and its old versions (ui/skillmodal.js).
+  if (doc.group === 'skills' || doc.group === 'hand') {
+    const words = doc.editable ? `Edit, rate or see the old versions of the skill ${doc.title}` : `View, rate or see the old versions of the skill ${doc.title} (hand-made and pinned: view only)`;
+    const pencil = el('a', { className: 'skill-edit', href: `/system#file=${doc.id}${doc.editable ? '&edit=1' : ''}`, title: words }, '✎');
+    pencil.setAttribute('aria-label', words);
+    pencil.setAttribute('aria-haspopup', 'dialog');
+    summary.append(pencil);
+  }
   if (doc.description) summary.append(el('span', { className: 'dim' }, doc.description));
   summary.append(el('span', { className: `meta${doc.stale ? ' stale' : ''}` }, meta(doc)));
   const body = el('div', { className: 'body' });
@@ -215,6 +262,8 @@ async function loadDoc(doc, body) {
     const file = await api(`/api/system/file?id=${encodeURIComponent(doc.id)}`);
     open.set(doc.id, { doc, body, hash: file.hash, text: file.text, loaded: true, editing: false, draft: null });
     showDoc(doc.id);
+    // A link that asked for the editor (/system#file=skill:<name>&edit=1). A view-only file stays a view.
+    if (pendingEdit === doc.id) { pendingEdit = null; if (doc.editable) editDoc(doc.id); }
   } catch (error) { body.replaceChildren(el('p', { className: 'result bad' }, error.message)); }
 }
 
@@ -236,6 +285,7 @@ function editDoc(id) {
   const { doc, body } = state;
   const area = el('textarea', { className: 'editor', value: state.draft ?? state.text, rows: 24, spellcheck: true });
   area.setAttribute('aria-label', `Text of ${doc.title}`);
+  const editor = numbered(area);
   const result = el('p', { className: 'result', hidden: true });
   const say = (text, level) => { result.textContent = text; result.className = `result ${level}`; result.hidden = !text; };
   const save = button('Save', async (b) => {
@@ -264,12 +314,12 @@ function editDoc(id) {
       state.text = file.text;
       say('This is the new version from the disk. Your text is still in the box below it; compare the two, then save again if you want yours.', 'warn');
       reload.hidden = true;
-      body.replaceChildren(el('div', { className: 'md' }, ...markdown(file.text, el)), el('p', { className: 'dim' }, 'Your text:'), area, result, el('div', { className: 'row' }, save, cancel));
+      body.replaceChildren(el('div', { className: 'md' }, ...markdown(file.text, el)), el('p', { className: 'dim' }, 'Your text:'), editor, result, el('div', { className: 'row' }, save, cancel));
     } catch (error) { say(error.message, 'bad'); }
   }, 'Load the version that is on the disk now and keep your text in the box');
   reload.hidden = true;
   const hint = el('p', { className: 'dim' }, doc.where === 'local' ? 'This is the live charter on the Mac mini. A save keeps a copy of the old text in local/charters/.history and a backup in the vault.' : 'A save pulls the vault, commits this file alone, and pushes to GitHub.');
-  body.replaceChildren(hint, area, result, el('div', { className: 'row' }, save, cancel, reload));
+  body.replaceChildren(hint, editor, result, el('div', { className: 'row' }, save, cancel, reload));
   state.editing = true;
   area.focus();
 }
@@ -278,31 +328,154 @@ function showFiles() {
   for (const group of ['charters', 'lessons', 'skills', 'hand']) {
     const box = byId(`group-${group}`);
     const docs = data.files.filter((f) => f.group === group);
-    if (!docs.length) { box.replaceChildren(el('p', { className: 'dim' }, 'None.')); continue; }
+    // A hand-made skill that an account has and the vault has no copy of: a row with no file to open.
+    const loose = group === 'hand' && registry ? registry.skills.filter((s) => s.kind === 'hand' && !s.id) : [];
+    if (!docs.length && !loose.length) { box.replaceChildren(el('p', { className: 'dim' }, 'None.')); continue; }
     const current = new Map([...box.querySelectorAll('details')].map((d) => [d.dataset.id, d]));
-    box.replaceChildren(...docs.map((doc) => {
+    const nodes = docs.map((doc) => {
       const have = current.get(doc.id);
-      if (!have) return docView(doc);
-      // A file that is open keeps its view and its editor. Its meta line follows the disk.
-      const m = have.querySelector('summary .meta');
-      m.textContent = meta(doc);
-      m.className = `meta${doc.stale ? ' stale' : ''}`;
-      const state = open.get(doc.id);
-      if (state?.loaded && !state.editing && doc.mtime !== state.doc.mtime) { state.doc = doc; loadDoc(doc, state.body); } else if (state) state.doc = doc;
-      return have;
-    }));
+      const node = have || docView(doc);
+      if (have) {
+        // A file that is open keeps its view and its editor. Its meta line follows the disk.
+        const m = have.querySelector('summary .meta');
+        m.textContent = meta(doc);
+        m.className = `meta${doc.stale ? ' stale' : ''}`;
+        const state = open.get(doc.id);
+        if (state?.loaded && !state.editing && doc.mtime !== state.doc.mtime) { state.doc = doc; loadDoc(doc, state.body); } else if (state) state.doc = doc;
+      }
+      if (group === 'skills' || group === 'hand') {
+        const s = skillOf(doc.id);
+        node.querySelector('summary .marks').replaceChildren(...skillMarks(s));
+        // A file with its editor open stays on the page whatever the filter says.
+        node.hidden = !shownInFilter(s) && !open.get(doc.id)?.editing;
+      }
+      return node;
+    });
+    for (const s of loose) {
+      const row = el('div', { className: 'doc plain' }, el('h3', {}, s.name), ...skillMarks(s), el('span', { className: 'dim' }, s.description),
+        el('span', { className: 'meta' }, 'In the Claude account only: no pinned copy in the vault, so there is no file to open here.'));
+      row.hidden = !shownInFilter(s);
+      nodes.push(row);
+    }
+    box.replaceChildren(...nodes);
+    if ((group === 'skills' || group === 'hand') && nodes.every((n) => n.hidden)) box.append(el('p', { className: 'dim' }, 'No skill of this workstream here.'));
   }
 }
 
+// The line over the skills and the workstream filter: how many skills each agent has, how many must be spread,
+// and one button for each workstream that has a skill.
+function showSkillBar() {
+  const line = byId('skill-summary');
+  const bar = byId('skill-filter');
+  line.hidden = !registry;
+  bar.hidden = !registry;
+  if (!registry) return;
+  const spread = registry.skills.filter((s) => s.access !== 'all');
+  line.textContent = `${registry.agents.map((a) => `${a.display} has ${plural(a.count, 'skill', 'skills')}`).join(', ')}. ${spread.length ? `${plural(spread.length, 'skill needs', 'skills need')} spreading: ${spread.map((s) => s.name).join(', ')}.` : 'Every skill is in all agents.'}`;
+  const counts = new Map();
+  for (const s of registry.skills) counts.set(s.category, (counts.get(s.category) || 0) + 1);
+  const codes = Object.keys(registry.categories).filter((c) => counts.has(c));
+  if (category !== 'all' && !codes.includes(category)) category = 'all';
+  const pick = (value, label, title) => {
+    const b = button(label, () => { category = value; showSkillBar(); showFiles(); }, title);
+    b.classList.toggle('on', value === category);
+    b.setAttribute('aria-pressed', String(value === category));
+    return b;
+  };
+  bar.replaceChildren(el('span', { className: 'label' }, 'Workstream:'), pick('all', `All ${registry.skills.length}`, 'Show the skills of every workstream'),
+    ...codes.map((c) => pick(c, `${c} ${counts.get(c)}`, registry.categories[c])));
+}
+
+// ---------- the address of one file (memo 1418) ----------
+// /system#file=<id> opens that file and moves to it; with &edit=1 an editable file opens in the editor. A hand-made
+// skill is pinned: it opens as a view, never as an editor (ui/skills.js parseSkillHash; the server refuses a save too).
+function openFile(id, edit) {
+  if (category !== 'all') { category = 'all'; showSkillBar(); showFiles(); }
+  const node = [...document.querySelectorAll('details.doc')].find((d) => d.dataset.id === id);
+  if (!node) { note(`The address names a file that is not on this page: ${id}`); return; }
+  const state = open.get(id);
+  if (edit && state?.loaded) { if (state.doc.editable && !state.editing) editDoc(id); } else if (edit) pendingEdit = id;
+  node.open = true;
+  node.scrollIntoView({ block: 'start' });
+  node.querySelector('summary').focus();
+}
+
+// /system#new=<name>&description=...&category=...&memo=... opens the draft of a new agent skill, in the schema of
+// skills/README.md of the vault. Nothing is written until her Save, which goes through the same save as any file:
+// it refuses when a file of that name came in the meantime, commits the one file, and pushes.
+async function openDraft(d) {
+  const box = byId('skill-draft');
+  let file;
+  try {
+    file = await api(`/api/skills/draft?${new URLSearchParams({ name: d.name, description: d.description, category: d.category, memo: d.memo })}`);
+  } catch (error) { note(error.message); return; }
+  // A skill of that name is there already: open it, in the editor.
+  if (file.exists) { box.replaceChildren(); openFile(file.id, true); return; }
+  const area = el('textarea', { className: 'editor', value: file.text, rows: 24, spellcheck: true });
+  area.setAttribute('aria-label', `Text of the new skill ${d.name}`);
+  const result = el('p', { className: 'result', hidden: true });
+  result.setAttribute('role', 'status');
+  const say = (text, level) => { result.textContent = text; result.className = `result ${level}`; result.hidden = !text; };
+  const leave = () => { box.replaceChildren(); history.replaceState(null, '', location.pathname); };
+  const save = button('Save the new skill', async (b) => {
+    // The name of the skill is the name in its frontmatter, so she can change it in the text.
+    const name = /^---\n(?:.*\n)*?name:[ \t]*["']?([a-z0-9][a-z0-9_-]{0,63})["']?[ \t]*\n/.exec(area.value)?.[1];
+    if (!name) { say('The text must start with a line ---, then name: and the name of the skill in small letters, digits and hyphens.', 'bad'); return; }
+    b.disabled = true;
+    b.classList.add('sending');
+    try {
+      const r = await api('/api/system/save', { id: `skill:${name}`, text: area.value, base: file.hash });
+      leave();
+      await load();
+      openFile(`skill:${name}`, false);
+      note(r.pushed ? `The new skill ${name} is saved, committed and pushed to GitHub.` : (r.error || `The new skill ${name} is saved.`));
+    } catch (error) { say(error.message, 'bad'); } finally { b.disabled = false; b.classList.remove('sending'); }
+  }, 'Write the new skill to the vault, commit it alone, and push');
+  const cancel = button('Cancel', leave, 'Leave the draft. Nothing is saved.');
+  const node = el('details', { className: 'doc draft', open: true },
+    el('summary', {}, el('h3', {}, `New skill, a draft: ${d.name}`), el('span', { className: 'meta' }, `Not saved yet. ${file.path}`)),
+    el('div', { className: 'body' },
+      el('p', { className: 'dim' }, 'A draft from a suggestion of the Inbox, in the schema of skills/README.md. Fill in the lines in angle brackets, then save. A save pulls the vault, commits this file alone, and pushes to GitHub.'),
+      numbered(area), result, el('div', { className: 'row' }, save, cancel)));
+  box.replaceChildren(node);
+  node.scrollIntoView({ block: 'start' });
+  area.focus();
+}
+// An address that names a section, /system#h-charters or #h-skills (the Quick Access card of the
+// Inbox): the page moves to it once its lists are there, since they push the section down as they load.
+let sectionDone = '';
+function goSection() {
+  const id = /^#(h-[a-z]+)$/.exec(location.hash || '')?.[1];
+  if (!id || !data || sectionDone === id) return;
+  const node = byId(id);
+  if (!node || node.closest('[hidden]')) return;
+  sectionDone = id;
+  node.scrollIntoView({ block: 'start' });
+}
+
+function followHash() {
+  if (!wanted || !data) return;
+  const w = wanted;
+  wanted = null;
+  if (w.draft) openDraft(w.draft); else openFile(w.file, w.edit);
+}
+window.addEventListener('hashchange', () => { wanted = skillUi ? skillUi.parseSkillHash(location.hash) : null; followHash(); sectionDone = ''; goSection(); });
+
 async function load() {
   try {
-    data = await api('/api/system');
+    // The skill registry comes with the page data. A server with none gives an error: the skills show without marks.
+    const [next, skills] = await Promise.all([api('/api/system'), api('/api/skills').catch(() => null)]);
+    data = next;
+    registry = skills && Array.isArray(skills.skills) ? skills : null;
     version = data.version;
     showSync();
     showDashboard();
     showMap();
+    showSkillBar();
     showFiles();
     note('');
+    followHash();
+    goSection();
   } catch (error) { note(error.message); }
 }
 async function poll() {
@@ -318,7 +491,7 @@ byId('check').addEventListener('click', async (event) => {
   try { data = await api('/api/system/check', {}); version = data.version; showSync(); showDashboard(); } catch (error) { note(error.message); } finally { b.disabled = false; b.classList.remove('sending'); }
 });
 
-tokenForm(load);
+tokenForm(() => { load(); });
 load();
 setInterval(poll, 30000);
 </script>

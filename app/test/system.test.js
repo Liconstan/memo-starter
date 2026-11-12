@@ -5,7 +5,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { createSystem, countVault, parseCounts, statusPaths, syncLine, frontmatter, readSkills } from '../src/system.js';
+import { createSystem, countVault, parseCounts, statusPaths, syncLine, frontmatter, readSkills, skillTemplate } from '../src/system.js';
 import { makeApp, call, TOKEN, LIAISON_TOKEN } from './helpers.js';
 
 const NOW = new Date('2026-11-04T12:00:00Z');
@@ -44,7 +44,7 @@ function makeVault({ git: withGit = true } = {}) {
   write(vault, 'skills/agent/old-skill/SKILL.md', skill('old-skill', '2026-09-01'));
   write(vault, 'skills/agent/never-used/SKILL.md', skill('never-used', null));
   write(vault, 'skills/botec/SKILL.md', skill('botec', null));
-  write(vault, 'skills/sf-slack-post/SKILL.md', skill('sf-slack-post', null));
+  write(vault, 'skills/slack-post/SKILL.md', skill('slack-post', null));
   write(vault, 'summaries/system-map.html', '<title>Map</title><p>Built Tuesday November 4, 2026 at 3:35 AM from the files the agents follow.</p>');
   write(local, 'charters/main.md', '# Charter: main\n\nYou do the work.\n');
   write(local, 'charters/second.md', '# Charter: second\n\nYou do the long work.\n');
@@ -124,7 +124,7 @@ test('the dashboard counts the vault by the rules', () => {
 test('the file list has the charters, the lessons, and the skills, and only those', () => {
   const { system, vault } = make();
   const files = system.files();
-  assert.deepEqual(files.map((f) => f.id), ['charter:main', 'charter:second', 'charter:cloud', 'lessons', 'skill:email-reply-drafts', 'skill:never-used', 'skill:old-skill', 'hand:botec', 'hand:sf-slack-post']);
+  assert.deepEqual(files.map((f) => f.id), ['charter:main', 'charter:second', 'charter:cloud', 'lessons', 'skill:email-reply-drafts', 'skill:never-used', 'skill:old-skill', 'hand:botec', 'hand:slack-post']);
   assert.ok(files.every((f) => f.file === undefined && f.mirror === undefined), 'no absolute path goes to the page');
   assert.equal(files.find((f) => f.id === 'hand:botec').editable, false);
   assert.match(files.find((f) => f.id === 'hand:botec').note, /Pinned copy/);
@@ -416,4 +416,183 @@ test('the watch and the timers start and stop without a vault', () => {
   assert.equal(system.summary().dashboard.people, 0);
   assert.equal(system.summary().map.exists, false);
   assert.ok(!existsSync(join(base, 'none')));
+});
+
+// ---------- a new agent skill, from a suggestion (memo 1418) ----------
+const README = '# Skills\n\n## Schema for an agent skill\n\nFrontmatter:\n\n```\n---\nname: <kebab-case>\ndescription: Use when <trigger>. <one clause of what it covers>.\npurpose: <one sentence>\nhelper_model: <haiku | sonnet | opus | fable> <low | medium | high>\ncreated_by: agent\ncreated: YYYY-MM-DD\nlast_used: YYYY-MM-DD\nsource: memo <n>\n---\n```\n';
+
+test('the template of a new skill follows the schema of skills/README.md, and has a default with no README', () => {
+  const text = skillTemplate({ name: 'daily-review', description: 'Use when you prepare a "Daily review" memo.', category: 'ME', source: 'memo 1417', today: '2026-11-04', readme: README });
+  const { data, body } = frontmatter(text);
+  assert.deepEqual(Object.keys(data), ['name', 'description', 'category', 'purpose', 'helper_model', 'created_by', 'created', 'last_used', 'source'], 'the keys of the README in its order, with the category after the description');
+  assert.equal(data.name, 'daily-review');
+  assert.equal(data.description, 'Use when you prepare a "Daily review" memo.');
+  assert.equal(data.category, 'ME');
+  assert.equal(data.purpose, '<one sentence>', 'a key with no value keeps the hint of the README');
+  assert.deepEqual([data.created, data.last_used, data.source], ['2026-11-04', '', 'memo 1417']);
+  assert.ok(!/^model:/m.test(text), 'never a model key: Claude Code would switch the model of the agent');
+  for (const section of ['## Goal', '## When to use', '## When not to use', '## Steps', '## Done when', '## Pitfalls']) assert.ok(body.includes(section), section);
+  const bare = frontmatter(skillTemplate({ name: 'x-y', today: '2026-11-04' })).data;
+  assert.deepEqual(Object.keys(bare), ['name', 'description', 'purpose', 'helper_model', 'model_why', 'created_by', 'created', 'last_used', 'source']);
+  assert.match(bare.description, /^Use when </);
+});
+
+test('the draft of a new skill writes nothing, and its save goes through the safe save', async () => {
+  const { system, vault, bare } = make();
+  writeFileSync(join(vault, 'skills', 'README.md'), README);
+  const draft = system.draft({ name: 'daily-review', description: 'Use when you prepare a "Daily review" memo.', category: 'ME', memo: '1417' });
+  assert.deepEqual([draft.id, draft.isNew, draft.exists, draft.hash, draft.path], ['skill:daily-review', true, false, sha(''), join('skills', 'agent', 'daily-review', 'SKILL.md')]);
+  assert.equal(draft.file, undefined, 'no absolute path goes to the page');
+  assert.match(draft.text, /^---\nname: daily-review\ndescription: Use when you prepare a "Daily review" memo\.\ncategory: ME\n/);
+  assert.match(draft.text, /\nsource: memo 1417\n/);
+  assert.ok(!existsSync(join(vault, 'skills', 'agent', 'daily-review')), 'a draft makes no folder');
+  // A draft for a skill that is there gives that skill and no text. Odd names, and a category that is no code, do nothing.
+  assert.deepEqual([system.draft({ name: 'old-skill' }).exists, system.draft({ name: 'old-skill' }).text], [true, undefined]);
+  for (const name of ['../x', 'Bad Name', 'a.b', '', undefined, 'agent']) assert.throws(() => system.draft({ name }), (e) => e.status === 400, `name ${JSON.stringify(name)}`);
+  assert.ok(!system.draft({ name: 'zz', category: 'me; rm' }).text.includes('category:'));
+  assert.throws(() => system.draft({ name: 'botec' }), (e) => e.status === 409 && /hand-made skill/.test(e.message), 'the name of a pinned skill is taken');
+  // The read of a file that is not there stays a 404: only the draft and the save know a new skill.
+  assert.throws(() => system.read('skill:daily-review'), (e) => e.status === 404);
+
+  // The save: the name and the description are checked, the base is the hash of no file, and nothing is written on a refusal.
+  await assert.rejects(system.save('skill:daily-review', draft.text.replace('name: daily-review', 'name: other'), draft.hash), (e) => e.status === 400 && /name is daily-review/.test(e.message));
+  await assert.rejects(system.save('skill:daily-review', draft.text.replace('description: Use when', 'description: For when'), draft.hash), (e) => e.status === 400 && /Use when/.test(e.message));
+  await assert.rejects(system.save('skill:daily-review', 'no frontmatter', draft.hash), (e) => e.status === 400);
+  await assert.rejects(system.save('skill:daily-review', draft.text, sha('other')), (e) => e.status === 409);
+  await assert.rejects(system.save('skill:botec', draft.text.replace('daily-review', 'botec'), draft.hash), (e) => e.status === 409);
+  await assert.rejects(system.save('hand:daily-review', draft.text, draft.hash), (e) => e.status === 404, 'a hand-made skill is never made here');
+  assert.ok(!existsSync(join(vault, 'skills', 'agent', 'daily-review')));
+  const r = await system.save('skill:daily-review', draft.text, draft.hash);
+  assert.deepEqual([r.ok, r.committed, r.pushed, r.error], [true, true, true, null]);
+  assert.equal(readFileSync(join(vault, 'skills', 'agent', 'daily-review', 'SKILL.md'), 'utf8'), draft.text);
+  assert.equal(git(vault, 'log', '-1', '--format=%s'), `Add ${join('skills', 'agent', 'daily-review', 'SKILL.md')} from the System page (the owner)`);
+  assert.equal(git(vault, 'show', '--stat', '--format=', 'HEAD').split('\n').filter((l) => l.includes('|')).length, 1, 'that file alone');
+  assert.equal(git(bare, 'rev-parse', 'main'), git(vault, 'rev-parse', 'HEAD'), 'pushed');
+  // Now it is a file as any other: listed, readable, and a second save as new is stale.
+  assert.ok(system.files().some((f) => f.id === 'skill:daily-review'));
+  assert.equal(system.read('skill:daily-review').hash, r.hash);
+  await assert.rejects(system.save('skill:daily-review', 'x', draft.hash), (e) => e.status === 409);
+  // A name that is a link to a place outside is not a new skill.
+  symlinkSync(join(vault, 'people'), join(vault, 'skills', 'agent', 'linked'));
+  await assert.rejects(system.save('skill:linked', draft.text.replace('daily-review', 'linked'), draft.hash), (e) => e.status === 404);
+  assert.ok(!existsSync(join(vault, 'people', 'SKILL.md')));
+});
+
+// ---------- memo 1513: the text before the latest change, for the dialog of the Inbox ----------
+test('the text before the latest change of a live charter is the newest kept copy, and the page says when there is none', async () => {
+  let clock = Date.parse('2026-11-04T12:00:00Z');
+  const { system, local } = make({ system: { now: () => new Date(clock) } });
+  const first = readFileSync(join(local, 'charters', 'main.md'), 'utf8');
+  // Nothing is kept yet, and the backup in the vault has no history either.
+  const none = await system.previous('charter:main');
+  assert.deepEqual([none.id, none.path, none.previous, none.hash], ['charter:main', join('local', 'charters', 'main.md'), null, sha(first)]);
+  // Two saves: the text before the latest change is that of the first save, not the oldest one.
+  const second = '# Charter: main\n\nYou do the work.\nAsk before a payment.\n';
+  const third = '# Charter: main\n\nYou do the work.\nAsk before a payment over 50 dollars.\n';
+  await system.save('charter:main', second, sha(first));
+  clock += 60_000;
+  await system.save('charter:main', third, sha(second));
+  const found = await system.previous('charter:main');
+  assert.equal(found.previous.text, second);
+  assert.equal(found.previous.source, 'history');
+  assert.equal(found.previous.at, '2026-11-04T12:01:00.000Z');
+  assert.equal(found.previous.label, join('local', 'charters', '.history', 'main-2026-11-04T12-01-00-000Z.md'));
+  assert.equal(found.hash, sha(third));
+  // The kept copies of the charter main are not those of a charter whose name starts the same way.
+  write(local, 'charters/.history/main-two-2026-11-05T12-00-00-000Z.md', 'the text of a different charter');
+  write(local, 'charters/.history/main-notes.md', 'no kept copy at all');
+  assert.equal((await system.previous('charter:main')).previous.text, second);
+  // A file that is not on the page has no earlier text either.
+  await assert.rejects(system.previous('charter:nobody'), (e) => e.status === 404);
+  await assert.rejects(system.previous('../../etc/passwd'), (e) => e.status === 404);
+});
+
+test('a charter that an agent changes by hand keeps its old text, once, and a save of the page keeps no second copy', async () => {
+  let clock = Date.parse('2026-11-04T12:00:00Z');
+  const { system, local } = make({ system: { now: () => new Date(clock) } });
+  const file = join(local, 'charters', 'main.md');
+  const first = readFileSync(file, 'utf8');
+  const kept = () => (existsSync(join(local, 'charters', '.history')) ? readdirSync(join(local, 'charters', '.history')) : []);
+  system.noteCharters(); // the start of the server: the texts as they are
+  system.noteCharters();
+  assert.deepEqual(kept(), [], 'no change, nothing kept');
+  // The agent edits the file, with no save of the page.
+  clock += 60_000;
+  writeFileSync(file, `${first}One more rule.\n`);
+  system.noteCharters();
+  system.noteCharters();
+  assert.deepEqual(kept(), ['main-2026-11-04T12-01-00-000Z.md']);
+  assert.equal(readFileSync(join(local, 'charters', '.history', kept()[0]), 'utf8'), first);
+  assert.equal(readFileSync(file, 'utf8'), `${first}One more rule.\n`, 'the charter itself is not touched');
+  const found = await system.previous('charter:main');
+  assert.deepEqual([found.previous.text, found.previous.source], [first, 'history']);
+  // A save of the page keeps the old text itself; the watch then finds nothing new.
+  clock += 60_000;
+  await system.save('charter:main', '# Charter: main\n\nNew.\n', found.hash);
+  system.noteCharters();
+  assert.equal(kept().length, 2);
+});
+
+test('the text before the latest change of a vault file comes from its git history, and of a skill also from its kept versions', async () => {
+  const { system, vault } = make();
+  const lessons = join(vault, 'scripts', 'lessons.md');
+  const first = readFileSync(lessons, 'utf8');
+  // One commit only, and the file as committed: no earlier text.
+  assert.equal((await system.previous('lessons')).previous, null);
+  // A change that is not committed yet: the committed text is the one before.
+  const second = `${first}4. Spell out every step.\n`;
+  writeFileSync(lessons, second);
+  const open = await system.previous('lessons');
+  assert.deepEqual([open.previous.text, open.previous.source, open.previous.at, open.previous.change], [first, 'git', null, null]);
+  assert.match(open.previous.label, /^commit [0-9a-f]{8}$/);
+  // Committed: the text before is that of the commit before, with the message and the time of the change.
+  git(vault, 'commit', '-q', '-am', 'Lesson 4: spell out every step (memo 1489)');
+  const done = await system.previous('lessons');
+  assert.deepEqual([done.previous.text, done.previous.source, done.previous.change], [first, 'git', 'Lesson 4: spell out every step (memo 1489)']);
+  assert.ok(!Number.isNaN(Date.parse(done.previous.at)));
+  // A commit that does not change the file is not its latest change.
+  write(vault, 'people/dee.md', '# dee');
+  git(vault, 'add', '-A');
+  git(vault, 'commit', '-q', '-m', 'A person');
+  assert.equal((await system.previous('lessons')).previous.text, first);
+  // A skill: a save of the page keeps the old text as a version and commits; the text before is the old text.
+  const skillFile = join(vault, 'skills', 'agent', 'old-skill', 'SKILL.md');
+  const old = readFileSync(skillFile, 'utf8');
+  await system.save('skill:old-skill', `${old}\n## Steps\n\n1. One.\n`, sha(old));
+  const saved = await system.previous('skill:old-skill');
+  assert.equal(saved.previous.text, old);
+  // A version kept by hand (scripts/skill-version) and an edit that is not committed: git knows the change too.
+  const hand = join(vault, 'skills', 'botec', 'SKILL.md');
+  const before = readFileSync(hand, 'utf8');
+  writeFileSync(hand, `${before}\nA new line.\n`);
+  assert.deepEqual([(await system.previous('hand:botec')).previous.text, (await system.previous('hand:botec')).previous.source], [before, 'git']);
+});
+
+test('with no git repository a skill still has the text before its change from its kept versions, and a file with none says so', async () => {
+  const { system, vault } = make({ git: false });
+  assert.equal((await system.previous('lessons')).previous, null);
+  const skillFile = join(vault, 'skills', 'agent', 'old-skill', 'SKILL.md');
+  const now = readFileSync(skillFile, 'utf8');
+  write(vault, 'skills/.versions/old-skill/2026-11-01-0900-aaaaaaaa.md', 'the oldest text');
+  write(vault, 'skills/.versions/old-skill/2026-11-03-0915-bbbbbbbb.md', 'the text before');
+  write(vault, 'skills/.versions/old-skill/2026-11-04-0800-cccccccc.md', now); // the text of now, kept by a sync
+  const found = await system.previous('skill:old-skill');
+  assert.deepEqual([found.previous.text, found.previous.source, found.previous.label], ['the text before', 'versions', join('skills', '.versions', 'old-skill', '2026-11-03-0915-bbbbbbbb.md')]);
+  assert.equal(found.previous.at, new Date('2026-11-03T09:15:00').toISOString());
+});
+
+test('the route of the text before the latest change: the owner only', async () => {
+  const { system, vault } = make();
+  const { app } = makeApp({ system });
+  writeFileSync(join(vault, 'scripts', 'lessons.md'), 'A new text.\n');
+  const r = await call(app, '/api/system/previous?id=lessons');
+  assert.equal(r.status, 200);
+  assert.deepEqual([r.data.id, r.data.title, r.data.previous.source, r.data.hash], ['lessons', 'Shared lessons', 'git', sha('A new text.\n')]);
+  assert.match(r.data.previous.text, /One question per memo/);
+  assert.ok(!('file' in r.data), 'no path of the disk in the answer');
+  assert.equal((await call(app, '/api/system/previous?id=lessons', undefined, null)).status, 401);
+  assert.equal((await call(app, '/api/system/previous?id=lessons', undefined, LIAISON_TOKEN)).status, 403);
+  assert.equal((await call(app, '/api/system/previous?id=nothing')).status, 404);
+  assert.equal((await call(app, '/api/system/previous')).status, 400);
+  assert.equal((await call(makeApp().app, '/api/system/previous?id=lessons')).status, 503);
 });

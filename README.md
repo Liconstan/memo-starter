@@ -6,13 +6,22 @@ This kit is a copy of a system that one person runs every day, with her personal
 
 **A placeholder is a name in capitals in square brackets, for example `[YOUR_NAME]` or `[TAILSCALE_HOST]`.** You do not edit them by hand. In step 5 a setup program asks you for each one and fills it in everywhere. After step 5, read the copy of this README that setup makes for you, `my-setup/README.md`: it has your own names, folders and addresses in the place of the placeholders. The full list is in [VARIABLES.md](VARIABLES.md).
 
+## Two repositories, set up in this order
+
+| Order | Repository | What it is |
+|---|---|---|
+| 1 | **memo-starter** (this one), https://github.com/Liconstan/memo-starter | The Memo app, the setup program, the templates of the agents, and this README. |
+| 2 | **second-brain-starter**, https://github.com/Liconstan/second-brain-starter | The vault template: the "second brain" of notes that the agents keep. Its README says how it pairs with this kit. |
+
+You clone both, side by side in your home folder, in step 4: `~/memo-starter` and `~/second-brain-starter`. You do not set up the second one by hand. In step 5, `npm run setup` in `~/memo-starter` reads the vault template from `~/second-brain-starter/vault`, fills in your answers, and writes your own vault to `[VAULT_PATH]`. The template stays as it is, so setup can run again later. Your vault gets its own private backup repository in step 12.
+
 ## What is in the kit
 
 | Folder or file | What it is |
 |---|---|
 | `app/` | The Memo app: the Inbox, Agents and System pages, the command `memo`, and the tests. Reference: [app/README.md](app/README.md). |
 | `templates/` | The files of your installation, with placeholders: the two agents, their charter (the rules they follow), their permissions, the workstream codes, and the schedules. |
-| `vault-template/` | The vault: the folder of notes that the agents keep about your meetings, mail, people and projects. It has the people templates, the playbooks for the nightly sync and the daily review, and the skills. |
+| `../second-brain-starter/vault/` | The vault template, from the second repository: the people templates, the playbooks for the nightly sync and the daily review, and the skills. |
 | `PETS.md` | The three pets that stand for the agents on the pages, and their personalities. |
 | `VARIABLES.md`, `variables.json` | Every placeholder: what it means, an example, where it is used, required or optional. |
 | `scripts/configure.mjs` | The setup program (`npm run setup`). |
@@ -78,21 +87,25 @@ Homebrew installs programs from Terminal. Node runs Memo. tmux keeps the agents 
 3. Run: `claude`. The first time, it opens your browser. Sign in with your first Claude account, [FIRST_CLAUDE_ACCOUNT_EMAIL], and click **Authorize**. Back in Terminal, press Return through the first questions.
 4. Leave Claude Code: type `/exit` and press Return.
 
-## Step 4. Get your own copy of the kit
+## Step 4. Get your own copies of the two repositories
 
 Keep the kit in your home folder itself, not inside Documents, Desktop or Downloads: macOS does not let background programs read those three folders.
 
-1. On github.com, open the page of this kit. Click **Use this template**, then **Create a new repository** (or **Fork**, if there is no template button). Name it `memo-starter`, select **Private**, and click **Create repository**. Private matters: your own notes about how you work will go into your copy over time.
-2. In Terminal, run these three lines, one at a time. In the first line, put your GitHub user name in the place of [GITHUB_USERNAME]:
+1. On github.com, open https://github.com/Liconstan/memo-starter. Click **Use this template**, then **Create a new repository**. Name it `memo-starter`, select **Private**, and click **Create repository**. Private matters: your own notes about how you work will go into your copy over time.
+2. Do the same for https://github.com/Liconstan/second-brain-starter: **Use this template**, **Create a new repository**, name it `second-brain-starter`, **Private**, **Create repository**.
+3. In Terminal, run these four lines, one at a time. In the first two, put your GitHub user name in the place of [GITHUB_USERNAME]:
 
    ```sh
    git clone https://github.com/[GITHUB_USERNAME]/memo-starter.git ~/memo-starter
+   git clone https://github.com/[GITHUB_USERNAME]/second-brain-starter.git ~/second-brain-starter
    cd ~/memo-starter
    npm --prefix app ci
    ```
 
+   The two folders must sit side by side in your home folder: setup looks for `~/second-brain-starter/vault`.
+
    If `git clone` asks you to sign in to GitHub, run `brew install gh`, then `gh auth login`, pick **GitHub.com**, **HTTPS**, **Login with a web browser**, and try the first line again.
-3. Check: run `npm test`. After about half a minute the last lines say `pass` with a number and `fail 0`.
+4. Check: run `npm test`. After about half a minute the last lines say `pass` with a number and `fail 0`.
 
 ## Step 5. Fill in your variables
 
@@ -116,7 +129,7 @@ What setup did:
 
 - It saved your answers in `my-setup/answers.json`. Git ignores the folder `my-setup/`, so your answers never go to GitHub.
 - It wrote `app/.env` (the settings, with a new secret token that it never shows), and `app/local/` (your two agents, their charter, their permissions, your workstream codes).
-- It created your vault at `[VAULT_PATH]` from `vault-template/`, the work folder `[AGENT_WORK_DIR]`, and the folder `[OUTBOX_PATH]` where agents put files for you.
+- It created your vault at `[VAULT_PATH]` from `~/second-brain-starter/vault`, the work folder `[AGENT_WORK_DIR]`, and the folder `[OUTBOX_PATH]` where agents put files for you.
 - It wrote `my-setup/README.md`: this README with your values filled in. **Open it now and go on from there.** In Terminal: `open my-setup/README.md`
 
 **Setup is safe to run again**, as often as you like: to change an answer, to fill in something you skipped, or after you update the kit. It keeps your token. It never overwrites a file that you or an agent changed after setup wrote it; it lists those files as "kept".
@@ -382,6 +395,9 @@ If the laptop is the Mac that runs Memo (no Mac mini), Parts A and B are all you
 | **Your writing voice** | `[VAULT_PATH]/skills/my-writing-voice/SKILL.md` is an empty template. After a few nightly syncs, send an agent the memo that the file suggests. |
 | **Rules for every task** | `[VAULT_PATH]/scripts/lessons.md`, also on the System page as **Shared lessons**. The agents add to it when you correct them. |
 | **The workstream codes** (OPS-14, FUND-3) | `app/local/workstreams.json`: a code of 2 to 8 capital letters, and its description. Restart the server. Three codes have a job in the app, so keep them: `ME` is the Personal tab of the Inbox, `PROG` is the code of the meeting follow-ups, `SYS` is the code of the system's own memos. |
+| **What shows on the Inbox** | The button **ADHD mode** next to the field for a new task: off shows only that field and your three top memos. In **Quick Access**, **Layout** picks which other parts show while it is off. Your phone and your Mac share the choice. |
+| **A skill, from the Inbox** | A memo whose words match a skill shows a small star and a card with that skill. The pencil opens the skill in a dialog: edit it, rate it 1 to 5 with what to change (the agent `main` then revises it), or see its old versions. A link in a memo to a charter, the lessons or a skill opens the same dialog with its latest change. |
+| **The meeting panel** | At the top of the Inbox: the next meeting with the time until it, its brief (the prep notes and the card the nightly sync wrote), **Ask for a brief**, and after the meeting the follow-up draft of `main`, which you edit and send with **Send** (your go-ahead for that text). |
 | **The pets** | [PETS.md](PETS.md): names, personalities, and how to use pictures of your own pets. |
 | **The nightly sync and the daily review** | The playbooks in `[VAULT_PATH]/scripts/`. Each has a last section, "Add your own", for a source or a section that only your organisation has. |
 | **The schedule** | `npm run setup` (the two hours), then copy and load the files of step 13 again. Tell an agent to update `app/local/schedule.json`, which feeds the **Scheduled** view of the Inbox. |
@@ -410,15 +426,15 @@ If the laptop is the Mac that runs Memo (no Mac mini), Parts A and B are all you
 
 **Back up your memos.** The memos are in `app/data/memo.db`, and attached images and files in `app/data/images/` and `app/data/files/`. To make a copy of the database: `cd ~/memo-starter/app && sqlite3 data/memo.db ".backup data/memo-backup.db"`. Copy that file and the two folders to a safe place now and then.
 
-**Update the kit later.** `cd ~/memo-starter && git pull && npm --prefix app ci && npm run setup -- --defaults && launchctl kickstart -k gui/$(id -u)/memo.server`. Your answers, your `app/local/`, your `app/data/` and your vault stay.
+**Update the kit later.** `cd ~/second-brain-starter && git pull && cd ~/memo-starter && git pull && npm --prefix app ci && npm run setup -- --defaults && launchctl kickstart -k gui/$(id -u)/memo.server`. Your answers, your `app/local/`, your `app/data/` and your vault stay.
 
-**Before you publish or share your copy.** Run `npm run scan` in `~/memo-starter`. It looks through every file that git tracks for names, addresses, tokens, phone numbers and home folders, and for the patterns of `app/local/scan-patterns.txt` (your own name, email and host, written there by setup). Share only when it says "clean".
+**Before you publish or share your copy.** Run `npm run scan` in `~/memo-starter`, and `npm run scan -- ~/second-brain-starter` for the other repository. It looks through every file that git tracks for names, addresses, tokens, phone numbers and home folders, and for the patterns of `app/local/scan-patterns.txt` (your own name, email and host, written there by setup). Share only when it says "clean".
 
 **Remove Memo.** This deletes all memos. In Terminal: `for j in memo.server memo.nightly-restart memo.vault-sync memo.daily-review; do launchctl bootout gui/$(id -u)/$j; rm -f ~/Library/LaunchAgents/$j.plist; done`, then `tmux kill-session -t memo-main; tmux kill-session -t memo-second`, then `/Applications/Tailscale.app/Contents/MacOS/Tailscale serve reset`. Move `~/memo-starter` to the Trash. The vault at `[VAULT_PATH]` is yours to keep.
 
 # What is not in the kit
 
-The system this kit comes from has newer parts that were left out on purpose, because they are recent, experimental, or fit only its owner: a health strip (Apple Health, a coaching app, a fitness band), a skill registry with ratings, a meeting brief panel, a Discord bridge, an hourly cloud agent, a cloud server deploy, a system map page, and the skills and sync steps of one organisation. The app is the same code without them, and its tests pass. Two optional, more advanced parts are still in the app and described in [app/README.md](app/README.md): the Inbox on GitHub Pages for when the Mac is off ("Inbox from anywhere"), and a GPT worker in the Codex desktop app ([app/docs/gpt-desktop.md](app/docs/gpt-desktop.md)).
+The system this kit comes from has parts that were left out on purpose, because they fit only its owner: a health strip (values from a phone, a coaching app, a fitness band), a Discord bridge, an hourly cloud agent, a cloud server deploy, a system map page, and the skills and sync steps of one organisation. The app is the same code without them, and its tests pass. Two optional, more advanced parts are still in the app and described in [app/README.md](app/README.md): the Inbox on GitHub Pages for when the Mac is off ("Inbox from anywhere"), and a GPT worker in the Codex desktop app ([app/docs/gpt-desktop.md](app/docs/gpt-desktop.md)).
 
 # Safety, in short
 

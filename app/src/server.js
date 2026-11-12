@@ -15,6 +15,8 @@ import { createTicks } from './ticks.js';
 import { localFile } from './paths.js';
 import { sendIMessage, validHandle } from './imessage.js';
 import { createSystem } from './system.js';
+import { createRegistry } from './registry.js';
+import { createMeetings } from './meeting.js';
 import { loadWorkstreams } from './workstreams.js';
 import { createUsage } from './usage.js';
 import { createCodexUsage } from './codex-usage.js';
@@ -112,16 +114,25 @@ const ledgerPage = process.env.MEMO_LEDGER_REPO ? (process.env.MEMO_LEDGER_PAGE 
 // A draft saved in the local Inbox goes to the phone soon: the ledger (below) publishes the state after a short pause.
 let ledger = null;
 // The System page reads the vault (MEMO_VAULT) and the live charters in local/ (MEMO_LOCAL). See README.md.
+const vault = (process.env.MEMO_VAULT || join(homedir(), 'memo-vault')).replace(/^~(?=\/|$)/, homedir());
+const local = process.env.MEMO_LOCAL || join(root, 'local');
 const system = createSystem({
-  vault: (process.env.MEMO_VAULT || join(homedir(), 'memo-vault')).replace(/^~(?=\/|$)/, homedir()),
-  local: process.env.MEMO_LOCAL || join(root, 'local'),
+  vault,
+  local,
   memoRoot: root,
   codeBranch: process.env.MEMO_CODE_BRANCH || 'main',
   codeRemote: process.env.MEMO_CODE_REMOTE || 'origin',
   codeRemoteBranch: process.env.MEMO_CODE_REMOTE_BRANCH || process.env.MEMO_CODE_BRANCH || 'main',
   commitName: process.env.MEMO_OWNER_NAME || owner,
 });
-const app = createApp({ store, agents, images, files, videos, frames, ticks, ticksOn, system, root, token, liaisonToken, owner, tailscale, calendarUrl, dataDir: dirname(dbPath), ledgerPage,
+// The skill registry and the skill prediction of the Inbox (src/registry.js, memo 1418): the skills of the vault and
+// of the Claude accounts of the long agents, with the workstream codes as their categories. Files and words only.
+const registry = createRegistry({ vault, local, workstreams: store.workstreams });
+// The meetings of the time block of the Inbox (src/meeting.js, memo 1422): the brief of the next meeting from the
+// invite and the context sheet of the vault, and the follow-up draft of the last one from the memos of the agent main.
+const meetings = createMeetings({ db, store, owner, vault, arrived: (name) => agents.arrived(name), agentNames: () => config.map((a) => a.name),
+  delayMin: followupDelay(process.env.MEMO_FOLLOWUP_DELAY_MIN) });
+const app = createApp({ store, agents, images, files, videos, frames, ticks, ticksOn, system, registry, meetings, root, token, liaisonToken, owner, tailscale, calendarUrl, dataDir: dirname(dbPath), ledgerPage,
   onDraft: () => { ledger?.nudge(); },
   // The pictures of the pets (README.md, "Pictures of the pets"): ~/memo-pets, or MEMO_PETS_DIR.
   ...(process.env.MEMO_PETS_DIR ? { petsDir: process.env.MEMO_PETS_DIR } : {}) });

@@ -2,7 +2,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { makeApp } from './helpers.js';
 import { isWork, shownMemos, step, countText, matches, filterChoices, tabTitle, TAB_TITLES, tagSuggestions, STARTER_TAGS, todayIn, addDays, nextMonday, dueWarning,
-  isUgh, ughReason, ughTitle, UGH_WORDS, UGH_DAYS, daysWaited, isHighEnergy, isLowEnergy, HIGH_EFFORTS, PERSONAL_WS, TAB_TAGS } from '../ui/filter.js';
+  isUgh, ughReason, ughTitle, UGH_WORDS, UGH_DAYS, daysWaited, isHighEnergy, isLowEnergy, HIGH_EFFORTS, PERSONAL_WS, TAB_TAGS,
+  focusMemos, focusTitle, readAdhd, saveAdhd, ADHD_KEY, FOCUS_COUNT,
+  MINIMAL_KEY, MINIMAL_WIDGETS, MINIMAL_ALWAYS, minimalDefault, parseMinimal, readMinimal, saveMinimal, setMinimal, minimalClasses, widgetShows, minimalMemos, devicePrefs, loadPrefs, savePrefs, savedWords } from '../ui/filter.js';
+import { makeApp as makeServer, call, TOKEN, LIAISON_TOKEN } from './helpers.js';
+import { existsSync } from 'node:fs';
+import { quickItems, quickAccess } from '../ui/dash.js';
+import { sortQueue } from '../src/rank.js';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { ROOT } from './helpers.js';
 import { recentMarks } from '../ui/recent.js';
 
 const get = async (path) => { const r = await makeApp().app.request(path); return { type: r.headers.get('content-type') || '', text: await r.text() }; };
@@ -206,4 +215,338 @@ test('the postpone dates are in the owner\'s zone, and the picker warns when the
   assert.match(dueWarning({ due: '2026-10-16' }, '2026-10-19'), /due 2026-10-16/);
   assert.equal(dueWarning({ due: '2026-10-20' }, '2026-10-19'), '');
   assert.equal(dueWarning({}, '2026-10-19'), '');
+});
+
+// ---------- memo 1513: ADHD mode ----------
+test('with ADHD mode off the list is the three memos of the highest priority, in the order of the queue (memo 1513)', () => {
+  const now = new Date('2026-11-12T12:00:00');
+  // The order of the server (src/rank.js): back from a postpone and not seen, due in the next two days, then impact by effort.
+  const queue = sortQueue([
+    { id: 1, impact: 2, effort: 'short' },
+    { id: 2, impact: 5, effort: 'micro' },
+    { id: 3, impact: 4, effort: 'day' },
+    { id: 4, impact: 1, effort: 'hour', due: '2026-11-13' },
+    { id: 5, impact: 3, effort: 'short', back: '2026-11-12T09:00:00Z', seen: 0 },
+    { id: 6, impact: 5, effort: 'short' },
+  ], now);
+  assert.deepEqual(queue.map((m) => m.id), [5, 4, 2, 6, 1, 3]);
+  assert.equal(FOCUS_COUNT, 3);
+  assert.deepEqual(focusMemos(queue).map((m) => m.id), [5, 4, 2], 'the first three of the queue, in its order');
+  assert.deepEqual(focusMemos(queue.slice(0, 2)).map((m) => m.id), [5, 4], 'fewer memos than three: all of them');
+  assert.deepEqual(focusMemos([]), []);
+  assert.deepEqual(focusMemos(null), []);
+  assert.equal(focusMemos(queue).length + 3, queue.length, 'the list is a new one: the queue keeps its memos');
+  // No filter applies: the three are those of the whole queue, also when a filter of the full view would hide one.
+  assert.ok(shownMemos(queue, 'low').length < queue.length);
+  assert.deepEqual([focusTitle(3), focusTitle(2), focusTitle(1), focusTitle(0)], ['Top 3 memos', 'Top 2 memos', 'Top memo', 'Memos']);
+});
+
+test('ADHD mode is on at the first load, the browser keeps the choice, and a browser that keeps nothing gives on (memo 1513)', () => {
+  const store = new Map();
+  const storage = { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => { store.set(k, String(v)); } };
+  assert.equal(readAdhd(storage), true, 'no choice yet: the Inbox as before');
+  assert.equal(saveAdhd(storage, false), true);
+  assert.equal(store.get(ADHD_KEY), 'off');
+  assert.equal(readAdhd(storage), false, 'the choice is there after a reload');
+  assert.equal(saveAdhd(storage, true), true);
+  assert.deepEqual([store.get(ADHD_KEY), readAdhd(storage)], ['on', true]);
+  store.set(ADHD_KEY, 'something else');
+  assert.equal(readAdhd(storage), true, 'only the word off turns it off');
+  // A private window: the storage throws, or is not there. Never an error, and the mode is on.
+  const closed = { getItem() { throw new Error('denied'); }, setItem() { throw new Error('denied'); } };
+  assert.equal(readAdhd(closed), true);
+  assert.equal(saveAdhd(closed, false), false);
+  assert.equal(readAdhd(null), true);
+  assert.equal(saveAdhd(undefined, false), false);
+});
+
+test('the Inbox has the ADHD mode button with its state, and with the mode off only the capture field, three memos and the button are on the page (memo 1513)', () => {
+  const page = readFileSync(join(ROOT, 'ui', 'inbox.html'), 'utf8');
+  const css = readFileSync(join(ROOT, 'ui', 'common.css'), 'utf8');
+  // The button: its name is "ADHD mode", its state is aria-pressed (on at the first load), and the small word is for the eye.
+  assert.ok(page.includes('<button type="button" id="adhd-toggle" class="adhd-toggle" aria-pressed="true">ADHD mode<span class="adhd-state" aria-hidden="true">On</span></button>'));
+  assert.ok(page.indexOf('id="adhd-toggle"') > page.indexOf('<header class="top">') && page.indexOf('id="adhd-toggle"') < page.indexOf('</header>'), 'next to the capture field');
+  for (const part of ["adhdToggle.setAttribute('aria-pressed', String(adhdOn));", "adhdToggle.addEventListener('click', () => setAdhd(!adhdOn));", 'try { adhdOn = readAdhd(localStorage); } catch',
+    'try { saveAdhd(localStorage, on); } catch', "document.documentElement.classList.toggle('adhd-off', !adhdOn);", 'const shown = () => (adhdOn ? shownMemos(memos, filter) : minimalMemos(memos, minimal));',
+    'const rows = filtered || !adhdOn ? [] : ticks;']) assert.ok(page.includes(part), part);
+  // The choice applies before the first paint, from the same key.
+  assert.ok(page.includes(`<script>try{if(localStorage.getItem('${ADHD_KEY}')==='off')document.documentElement.classList.add('adhd-off');}catch(e){}</script>`));
+  assert.ok(page.indexOf(`localStorage.getItem('${ADHD_KEY}')`) < page.indexOf('<body>'));
+  // Off: every widget but the capture form and the list is off the page (display: none), not folded.
+  // Memo 1531: the parts of the list go always; each widget has its own rule, which holds until she picks the widget.
+  const rule = css.match(/html\.adhd-off \.app\.inbox :is\(([^)]*)\) \{ display: none !important; \}/);
+  assert.ok(rule, 'one rule takes the parts of the list off the page');
+  const each = [...css.matchAll(/^html\.adhd-off(?::not\(\.mv-[a-z0-9]+\))+ \.app\.inbox (?::is\(([^)]*)\)|([^{]*?)) \{ display: none !important; \}$/gm)].flatMap((m) => (m[1] || m[2]).split(',').map((x) => x.trim()));
+  const gone = [...rule[1].split(',').map((x) => x.trim()), ...each];
+  for (const part of ['.side', '.top .refresh', '.hero', '.meeting-panel', '.agent-strip', '#later', '.col-side', '#filter', '#answered-list', '#scheduled-list', '.tick']) assert.ok(gone.includes(part), part);
+  for (const part of ['#capture', '#queue', '.adhd-toggle', '.top', '.queue-card', '#token-form', '#note']) assert.ok(!gone.some((g) => g === part), `${part} stays`);
+  // Every widget of the page is in the rule or is one of the three things that stay: a new widget must pick a side.
+  const body = page.slice(page.indexOf('<div class="page">'), page.indexOf('<template id="paperclip">'));
+  const sections = [...body.matchAll(/<section class="([^"]*)"/g)].map((m) => m[1]);
+  assert.ok(sections.length >= 9);
+  const hidden = (cls) => cls.split(' ').some((c) => gone.includes(`.${c}`)) || ['today', 'keys', 'dash-card'].some((c) => cls.split(' ').includes(c));
+  for (const cls of sections) assert.ok(cls === 'card queue-card' || cls === 'card later' || hidden(cls), `the section ${cls} is hidden with the mode off, or is the list`);
+  assert.ok(body.indexOf('<aside class="col-side">') < body.indexOf('class="card today"') && body.indexOf('id="skill-suggest"') > body.indexOf('<aside class="col-side">'), 'the side widgets are in the column that goes');
+  // The phone: the button is there at each width (the Refresh button is not).
+  assert.match(css, /@media \(max-width: 40rem\) \{\n  \.app\.inbox \.top \{ flex-wrap: wrap; \}\n  \.app\.inbox \.top \.adhd-toggle \{/);
+  assert.ok(!/\.adhd-toggle[^{]*\{[^}]*display: none/.test(css), 'no rule hides the button');
+});
+
+// ---------- memo 1531: the minimal view, what shows with ADHD mode off ----------
+test('the minimal view: the top 3 memos show until she turns them off, every other widget is off until she turns it on (memo 1531)', () => {
+  assert.deepEqual(minimalDefault(), ['top3']);
+  assert.deepEqual(MINIMAL_WIDGETS.filter((w) => w.on).map((w) => w.key), ['top3']);
+  assert.deepEqual(MINIMAL_WIDGETS.map((w) => w.key), ['top3', 'hero', 'meeting', 'agents', 'suggest', 'today', 'quick', 'keys', 'side', 'refresh']);
+  for (const w of MINIMAL_WIDGETS) { assert.match(w.key, /^[a-z0-9]+$/); assert.ok(w.label.length > 3, 'each box has words'); }
+  assert.equal(new Set(MINIMAL_WIDGETS.map((w) => w.label)).size, MINIMAL_WIDGETS.length);
+  // The capture field and the button are no boxes: they always show.
+  assert.deepEqual(MINIMAL_ALWAYS, ['Capture field', 'ADHD mode button']);
+  assert.ok(!MINIMAL_WIDGETS.some((w) => /capture|adhd/i.test(w.key + w.label)));
+  // The stored value: no value is the default, an empty value is nothing, a word that is no widget is left out, and
+  // the order is that of the list.
+  assert.deepEqual(parseMinimal(null), ['top3']);
+  assert.deepEqual(parseMinimal(undefined), ['top3']);
+  assert.deepEqual(parseMinimal(''), []);
+  assert.deepEqual(parseMinimal('today,top3'), ['top3', 'today']);
+  assert.deepEqual(parseMinimal(' today , nothing,constructor,TOP3,today'), ['today']);
+  // A click on a box.
+  assert.deepEqual(setMinimal(['top3'], 'today', true), ['top3', 'today']);
+  assert.deepEqual(setMinimal(['top3', 'today'], 'top3', false), ['today']);
+  assert.deepEqual(setMinimal(['today'], 'today', true), ['today']);
+  assert.deepEqual(setMinimal([], 'nothing', true), []);
+  assert.deepEqual(setMinimal(null, 'agents', true), ['agents']);
+  // The classes of the page.
+  assert.deepEqual(minimalClasses(['top3', 'today']), ['mv-top3', 'mv-today']);
+  assert.deepEqual(minimalClasses([]), []);
+  assert.deepEqual(minimalClasses(['x y', 'today']), ['mv-today']);
+});
+
+test('what shows: with ADHD mode on every widget, with it off only the picked ones; the list is the top 3 or nothing (memo 1531)', () => {
+  for (const w of MINIMAL_WIDGETS) {
+    assert.equal(widgetShows(true, [], w.key), true, `on: ${w.key} shows, whatever is picked`);
+    assert.equal(widgetShows(false, minimalDefault(), w.key), w.key === 'top3', `off, nothing picked yet: ${w.key}`);
+    assert.equal(widgetShows(false, [w.key], w.key), true);
+    assert.equal(widgetShows(false, [], w.key), false);
+  }
+  const queue = [{ id: 5 }, { id: 4 }, { id: 2 }, { id: 6 }];
+  assert.deepEqual(minimalMemos(queue, ['top3']).map((m) => m.id), [5, 4, 2]);
+  assert.deepEqual(minimalMemos(queue, ['top3', 'today']).map((m) => m.id), [5, 4, 2]);
+  assert.deepEqual(minimalMemos(queue, ['today']), [], 'the top 3 memos are turned off');
+  assert.deepEqual(minimalMemos(queue, []), []);
+  assert.deepEqual(minimalMemos(null, ['top3']), []);
+});
+
+test('the browser keeps the minimal view, and a browser that keeps nothing gives the default (memo 1531)', () => {
+  const store = new Map();
+  const storage = { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => { store.set(k, String(v)); } };
+  assert.deepEqual(readMinimal(storage), ['top3'], 'no choice yet');
+  assert.equal(saveMinimal(storage, ['today', 'top3', 'nothing']), true);
+  assert.equal(store.get(MINIMAL_KEY), 'top3,today');
+  assert.deepEqual(readMinimal(storage), ['top3', 'today']);
+  assert.equal(saveMinimal(storage, []), true);
+  assert.equal(store.get(MINIMAL_KEY), '');
+  assert.deepEqual(readMinimal(storage), [], 'she turned all of them off: that is kept, it is not the default');
+  assert.notEqual(MINIMAL_KEY, ADHD_KEY);
+  const closed = { getItem() { throw new Error('denied'); }, setItem() { throw new Error('denied'); } };
+  assert.deepEqual(readMinimal(closed), ['top3']);
+  assert.equal(saveMinimal(closed, ['today']), false);
+  assert.deepEqual(readMinimal(null), ['top3']);
+  assert.equal(saveMinimal(undefined, ['today']), false);
+});
+
+test('the page: a rule for each widget of the minimal view, the choice before the first paint, and the settings behind the Layout button (memo 1531)', () => {
+  const page = readFileSync(join(ROOT, 'ui', 'inbox.html'), 'utf8');
+  const css = readFileSync(join(ROOT, 'ui', 'common.css'), 'utf8');
+  // Each widget has one rule that takes it off the page while ADHD mode is off and it is not picked. With the mode
+  // on (no class adhd-off) no rule of the minimal view applies.
+  for (const w of MINIMAL_WIDGETS) {
+    const rules = css.split('\n').filter((l) => l.startsWith(`html.adhd-off:not(.mv-${w.key})`) && l.endsWith('{ display: none !important; }'));
+    assert.ok(rules.length >= 1, `a rule for ${w.key}`);
+  }
+  for (const line of css.split('\n').filter((l) => /\.mv-[a-z0-9]+\)/.test(l))) assert.ok(line.replace(/^@media \([^)]*\) \{ /, '').startsWith('html.adhd-off:not('), `only with the mode off: ${line}`);
+  // The capture field and the button are in no rule.
+  for (const line of css.split('\n').filter((l) => l.startsWith('html.adhd-off') && l.includes('display: none'))) assert.ok(!/#capture|\.adhd-toggle|\.top \{|#note|#token-form/.test(line), line);
+  // Before the first paint, from the same key; with no choice, and in a browser that refuses, the top 3 memos.
+  const early = `<script>try{var v=localStorage.getItem('${MINIMAL_KEY}');(v===null?'top3':v).split(',').forEach(function(k){if(/^[a-z0-9]+$/.test(k))document.documentElement.classList.add('mv-'+k);});}catch(e){document.documentElement.classList.add('mv-top3');}</script>`;
+  assert.ok(page.includes(early));
+  assert.ok(page.indexOf(early) < page.indexOf('<body>'));
+  // The settings: a fieldset with a legend in the Quick Access card, a labelled box for each widget, a status line,
+  // and storage in a try.
+  assert.ok(page.includes('<fieldset class="mv-set" id="minimal-settings" hidden></fieldset>'));
+  assert.ok(page.indexOf('id="minimal-settings"') > page.indexOf('id="quick-access"') && page.indexOf('id="minimal-settings"') < page.indexOf('class="card keys"'));
+  for (const part of ["el('legend', {}, 'Minimal view (ADHD mode off)')", "el('input', { type: 'checkbox', id: `mv-${w.key}`, checked: minimal.includes(w.key) })", "el('label', { htmlFor: `mv-${w.key}` }, box, w.label)",
+    "saved.setAttribute('role', 'status');", 'try { minimal = readMinimal(localStorage); } catch', 'try { kept = saveMinimal(localStorage, minimal); } catch', 'layout: true, open: !minimalBox.hidden',
+    "document.documentElement.classList.toggle('mv-editing', !minimalBox.hidden);"]) assert.ok(page.includes(part), part);
+  // Phone width: the boxes are one column of rows a finger can hit, and long words wrap.
+  assert.match(css, /\.mv-set label \{[^}]*min-height: 2\.1rem;[^}]*overflow-wrap: anywhere;/);
+  assert.match(css, /\.mv-set \{[^}]*min-width: 0;/);
+});
+
+test('the Layout button of Quick Access opens the settings of the minimal view and says whether they are open (memo 1531)', () => {
+  const fakeEl = (tag, props = {}, ...children) => {
+    const node = { tag, ...props, children, attrs: {}, listeners: {} };
+    node.setAttribute = (k, v) => { node.attrs[k] = v; };
+    node.addEventListener = (k, fn) => { node.listeners[k] = fn; };
+    return node;
+  };
+  const ran = [];
+  const draw = (open) => quickAccess(quickItems({ layout: true, open }), fakeEl, { run: (what) => ran.push(what) }).children[4];
+  const closed = draw(false);
+  assert.deepEqual([closed.tag, closed.className, closed.attrs['aria-expanded']], ['button', 'qa', 'false']);
+  assert.match(closed.title, /^Minimal view: pick which widgets show when ADHD mode is off/);
+  closed.listeners.click({ stopPropagation() {} });
+  assert.deepEqual(ran, ['layout']);
+  assert.equal(draw(true).attrs['aria-expanded'], 'true');
+  // A page with no such settings: the button is off, as before. The other buttons have no aria-expanded.
+  const old = quickAccess(quickItems(), fakeEl).children;
+  assert.equal(old[4].className, 'qa off');
+  assert.equal(old[0].attrs['aria-expanded'], undefined);
+});
+
+test('ADHD mode off never makes the page narrower: no width rule for the page, and the columns stay unless no side widget shows (memo 1536)', () => {
+  const css = readFileSync(join(ROOT, 'ui', 'common.css'), 'utf8');
+  const off = css.split('\n').filter((l) => l.includes('html.adhd-off'));
+  for (const line of off) assert.ok(!/max-width|(?<!min-)width:/.test(line.replace(/@media \([^)]*\)/, '')), `a width in: ${line}`);
+  assert.ok(!off.some((l) => /\.page\b/.test(l)), 'no rule for the page');
+  assert.ok(!off.some((l) => /\.agent-strip[^,)]*\{/.test(l) && !l.includes('display: none')), 'the agents keep their row');
+  // One column only when the side column is gone; else the two columns of the full view.
+  assert.ok(!css.includes('html.adhd-off .app.inbox .columns {'));
+  assert.ok(css.includes('html.adhd-off:not(.mv-suggest):not(.mv-today):not(.mv-quick):not(.mv-keys):not(.mv-editing) .app.inbox .columns { grid-template-columns: minmax(0, 1fr); }'));
+});
+
+// ---------- memo 1537: the two choices on the server, for each of her devices ----------
+const memoryStorage = (start = {}) => {
+  const store = new Map(Object.entries(start));
+  return { store, getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => { store.set(k, String(v)); } };
+};
+// An api function over a server of the tests, as ui/common.js api: a body makes a POST; an error answer throws.
+const apiOf = (app, token = TOKEN, calls = []) => async (path, body) => {
+  calls.push([path, body]);
+  const r = await call(app, path, body, token);
+  if (r.status !== 200) throw new Error(r.data.error || `status ${r.status}`);
+  return r.data;
+};
+
+test('the preferences of the owner: only the owner reads and writes them, and only the two valid values are kept (memo 1537)', async () => {
+  const { app, dataDir } = makeServer({ now: () => new Date('2026-11-12T20:00:00Z') });
+  const file = join(dataDir, 'prefs.json');
+  assert.deepEqual((await call(app, '/api/prefs')).data, { adhd: null, minimal: null, updated: null }, 'nothing set yet');
+  assert.equal(existsSync(file), false);
+  // The owner only: no token, a wrong token and the liaison token are refused, for a read and for a write.
+  for (const [token, status] of [[null, 401], ['wrong-token-0123456789', 401], [LIAISON_TOKEN, 403]]) {
+    assert.equal((await call(app, '/api/prefs', undefined, token)).status, status);
+    assert.equal((await call(app, '/api/prefs', { adhd: 'off' }, token)).status, status);
+    const put = await app.request('/api/prefs', { method: 'PUT', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ adhd: 'off' }) });
+    assert.equal(put.status, status);
+  }
+  assert.equal(existsSync(file), false, 'a refused write keeps nothing');
+  // A write of one value keeps the other.
+  const one = await call(app, '/api/prefs', { minimal: 'agents,top3' });
+  assert.deepEqual([one.status, one.data], [200, { adhd: null, minimal: 'top3,agents', updated: '2026-11-12T20:00:00.000Z' }]);
+  const put = await app.request('/api/prefs', { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TOKEN}` }, body: JSON.stringify({ adhd: 'off' }) });
+  assert.equal(put.status, 200);
+  assert.deepEqual(await put.json(), { adhd: 'off', minimal: 'top3,agents', updated: '2026-11-12T20:00:00.000Z' });
+  assert.deepEqual((await call(app, '/api/prefs')).data, { adhd: 'off', minimal: 'top3,agents', updated: '2026-11-12T20:00:00.000Z' });
+  assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { adhd: 'off', minimal: 'top3,agents', updated: '2026-11-12T20:00:00.000Z' });
+  // No widget at all is a choice too.
+  assert.equal((await call(app, '/api/prefs', { minimal: '' })).data.minimal, '');
+  // What is refused: a name that is no preference, no name, a wrong value, a widget that is not there, a long value.
+  for (const bad of [{ theme: 'dark' }, { adhd: 'off', extra: 1 }, {}, { adhd: 'maybe' }, { adhd: true }, { minimal: ['top3'] }, { minimal: 'top3,nothing' }, { minimal: 'TOP3' }, { minimal: 'top3, today' },
+    { minimal: 'top3;rm -rf' }, { minimal: '../x' }, { minimal: Array(40).fill('top3').join(',') + ',' + 'a'.repeat(200) }, { minimal: 'constructor' }]) {
+    assert.equal((await call(app, '/api/prefs', bad)).status, 400, JSON.stringify(bad).slice(0, 60));
+  }
+  assert.deepEqual((await call(app, '/api/prefs')).data, { adhd: 'off', minimal: '', updated: '2026-11-12T20:00:00.000Z' }, 'a refused write changes nothing');
+  assert.ok(readFileSync(file, 'utf8').length < 200, 'the file stays small');
+  // A file that someone broke by hand reads as nothing set.
+  const broken = makeServer();
+  (await import('node:fs')).writeFileSync(join(broken.dataDir, 'prefs.json'), '{"adhd":"sideways","minimal":7,"x":"y"');
+  assert.deepEqual((await call(broken.app, '/api/prefs')).data, { adhd: null, minimal: null, updated: null });
+});
+
+test('at the start of the page the choice of the server wins and goes into the copy of the browser (memo 1537)', async () => {
+  const { app } = makeServer();
+  await call(app, '/api/prefs', { adhd: 'off', minimal: 'top3,agents' });
+  // The phone: it has an older choice of its own, with no Agents.
+  const phone = memoryStorage({ [ADHD_KEY]: 'on', [MINIMAL_KEY]: 'top3' });
+  const calls = [];
+  const p = await loadPrefs(apiOf(app, TOKEN, calls), phone);
+  assert.deepEqual(p, { adhdOn: false, minimal: ['top3', 'agents'], from: 'server', uploaded: [] });
+  assert.deepEqual([phone.store.get(ADHD_KEY), phone.store.get(MINIMAL_KEY)], ['off', 'top3,agents'], 'the copy for the first paint of the next load');
+  assert.deepEqual(calls, [['/api/prefs', undefined]], 'one read, no write: her ticks on the server stay');
+  // A new device with nothing kept gets the same.
+  assert.deepEqual((await loadPrefs(apiOf(app), memoryStorage())).minimal, ['top3', 'agents']);
+  // A browser that keeps nothing still gets the choice of the server.
+  const closed = { getItem() { throw new Error('denied'); }, setItem() { throw new Error('denied'); } };
+  assert.deepEqual(await loadPrefs(apiOf(app), closed), { adhdOn: false, minimal: ['top3', 'agents'], from: 'server', uploaded: [] });
+  assert.deepEqual((await loadPrefs(apiOf(app), null)).minimal, ['top3', 'agents']);
+});
+
+test('a choice from before goes up to the server one time, and only where the server has none (memo 1537)', async () => {
+  const { app } = makeServer();
+  const laptop = memoryStorage({ [ADHD_KEY]: 'off', [MINIMAL_KEY]: 'agents,top3' });
+  assert.deepEqual(devicePrefs(laptop), { adhd: 'off', minimal: 'top3,agents' });
+  assert.deepEqual(devicePrefs(memoryStorage()), { adhd: null, minimal: null });
+  assert.deepEqual(devicePrefs(memoryStorage({ [ADHD_KEY]: 'sideways', [MINIMAL_KEY]: '' })), { adhd: null, minimal: '' });
+  const calls = [];
+  const first = await loadPrefs(apiOf(app, TOKEN, calls), laptop);
+  assert.deepEqual(first, { adhdOn: false, minimal: ['top3', 'agents'], from: 'server', uploaded: ['adhd', 'minimal'] });
+  assert.deepEqual(calls[1], ['/api/prefs', { adhd: 'off', minimal: 'top3,agents' }]);
+  assert.deepEqual([(await call(app, '/api/prefs')).data.adhd, (await call(app, '/api/prefs')).data.minimal], ['off', 'top3,agents']);
+  // The second load sends nothing up, and a second device with another old choice does not replace it.
+  calls.length = 0;
+  await loadPrefs(apiOf(app, TOKEN, calls), laptop);
+  const phone = memoryStorage({ [MINIMAL_KEY]: 'top3' });
+  assert.deepEqual((await loadPrefs(apiOf(app, TOKEN, calls), phone)).uploaded, []);
+  assert.equal(calls.filter(([, body]) => body).length, 0);
+  assert.equal((await call(app, '/api/prefs')).data.minimal, 'top3,agents');
+  // Only the value the server lacks goes up: the server has the minimal view, this device has the mode too.
+  const half = makeServer();
+  await call(half.app, '/api/prefs', { minimal: 'today' });
+  const mixed = await loadPrefs(apiOf(half.app), memoryStorage({ [ADHD_KEY]: 'off', [MINIMAL_KEY]: 'top3' }));
+  assert.deepEqual(mixed, { adhdOn: false, minimal: ['today'], from: 'server', uploaded: ['adhd'] });
+  assert.deepEqual([(await call(half.app, '/api/prefs')).data.adhd, (await call(half.app, '/api/prefs')).data.minimal], ['off', 'today']);
+  // A device whose choice is only the default sends nothing up: the ticks of another device can still come.
+  const plain = makeServer();
+  const untouched = memoryStorage({ [ADHD_KEY]: 'on', [MINIMAL_KEY]: 'top3' });
+  assert.deepEqual(await loadPrefs(apiOf(plain.app), untouched), { adhdOn: true, minimal: ['top3'], from: 'server', uploaded: [] });
+  assert.equal((await call(plain.app, '/api/prefs')).data.updated, null);
+  await loadPrefs(apiOf(plain.app), memoryStorage({ [ADHD_KEY]: 'off', [MINIMAL_KEY]: 'top3,agents' }));
+  assert.deepEqual((await loadPrefs(apiOf(plain.app), untouched)).minimal, ['top3', 'agents'], 'and then the untouched device gets them');
+  // A device with nothing and a server with nothing: the defaults, and nothing is written.
+  const empty = makeServer();
+  assert.deepEqual(await loadPrefs(apiOf(empty.app), memoryStorage()), { adhdOn: true, minimal: ['top3'], from: 'server', uploaded: [] });
+  assert.equal((await call(empty.app, '/api/prefs')).data.updated, null);
+});
+
+test('with no server the copy of the browser stays, and a change is kept there (memo 1537)', async () => {
+  const down = async () => { throw new Error('Failed to fetch'); };
+  const device = memoryStorage({ [ADHD_KEY]: 'off', [MINIMAL_KEY]: 'top3,today' });
+  assert.deepEqual(await loadPrefs(down, device), { adhdOn: false, minimal: ['top3', 'today'], from: 'device', uploaded: [] });
+  assert.deepEqual(await loadPrefs(down, memoryStorage()), { adhdOn: true, minimal: ['top3'], from: 'device', uploaded: [] });
+  assert.deepEqual(await loadPrefs(down, null), { adhdOn: true, minimal: ['top3'], from: 'device', uploaded: [] });
+  // The token of the liaison, or none: the server refuses, and the device goes on with its own.
+  const { app } = makeServer();
+  assert.equal((await loadPrefs(apiOf(app, LIAISON_TOKEN), device)).from, 'device');
+  // A save: the browser first, then the server.
+  assert.deepEqual(await savePrefs(down, device, { minimal: ['agents', 'top3'] }), { device: true, server: false });
+  assert.equal(device.store.get(MINIMAL_KEY), 'top3,agents');
+  assert.deepEqual(await savePrefs(down, null, { adhdOn: true }), { device: false, server: false });
+  const calls = [];
+  assert.deepEqual(await savePrefs(apiOf(app, TOKEN, calls), device, { adhdOn: true, minimal: ['agents', 'nothing'] }), { device: true, server: true });
+  assert.deepEqual(calls, [['/api/prefs', { adhd: 'on', minimal: 'agents' }]]);
+  assert.deepEqual([device.store.get(ADHD_KEY), device.store.get(MINIMAL_KEY)], ['on', 'agents']);
+  assert.deepEqual([(await call(app, '/api/prefs')).data.adhd, (await call(app, '/api/prefs')).data.minimal], ['on', 'agents']);
+  // The other device sees it at its next load.
+  assert.deepEqual((await loadPrefs(apiOf(app), memoryStorage({ [MINIMAL_KEY]: 'top3' }))).minimal, ['agents']);
+  assert.deepEqual(await savePrefs(apiOf(app), device, {}), { device: false, server: false });
+  assert.equal(savedWords({ device: true, server: true }), 'Saved for all your devices.');
+  assert.match(savedWords({ device: true, server: false }), /^Saved on this device only/);
+  assert.match(savedWords({ device: false, server: false }), /^Not saved/);
+});
+
+test('the Inbox loads the two choices from the server at its start and when it shows again, and sends each change (memo 1537)', () => {
+  const page = readFileSync(join(ROOT, 'ui', 'inbox.html'), 'utf8');
+  for (const part of ['try { p = await loadPrefs(api, localStorage); } catch { return; }', "if (at !== prefsChanges || p.from !== 'server') return;", '\nsyncPrefs();\n',
+    "document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') syncPrefs(); });", 'savePrefs(api, null, { adhdOn: on })', 'savePrefs(api, null, { minimal })',
+    'sendZone(); syncPrefs(); });']) assert.ok(page.includes(part), part);
 });

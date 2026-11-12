@@ -16,7 +16,7 @@
 // An animated picture (a .webp or a .gif) moves by itself: the CSS adds no movement and no pose to it, only the
 // overlay of the extras; with prefers-reduced-motion its still file shows, when the folder has one (pictureSources).
 // All text goes into the page as text nodes; the SVG is built element by element, never from markup.
-import { petOf, feelingOf, artPicture, sizeOf, upsetOf, excitedOf, rowLabel, rowFeeling, cuddleMoment, waitLevel } from './pets.js';
+import { PETS, petOf, feelingOf, artPicture, sizeOf, upsetOf, excitedOf, rowLabel, rowFeeling, cuddleMoment, waitLevel } from './pets.js';
 
 // The XML namespace of SVG, a fixed name that the browser knows; nothing is loaded from it. It is in two parts so the
 // test that no page names a web address still holds.
@@ -274,5 +274,21 @@ export function rowPet(memo, el, { art = null, now = new Date(), today = '' } = 
   const node = el('span', { className: classes.join(' '), title: label }, art0, el('span', { className: 'visually-hidden' }, label));
   node.setAttribute('role', 'img');
   node.setAttribute('aria-label', label);
+  return node;
+}
+
+// Whether an agent has a pet of its own: one of the three of the quiz (ui/pets.js PETS), or pictures in the pets
+// folder (`art` of GET /api/agents). The liaison and Discord have none: they keep the letter in a circle.
+export const hasPet = (name, art = null) => Object.hasOwn(PETS, String(name)) || Boolean(art && (art.any || (Array.isArray(art.feelings) && art.feelings.length)));
+// The pet of the sender in the head of an open memo (memo 1420): the same art as in the row of the memo (the picture
+// of the mood of the memo, or the drawing), at the size of the sender circle, calm and still. null for a sender with
+// no pet. The name of the sender is in the text next to it, so the pet is decoration, as the circle is.
+export function headPet(memo, el, { art = null, now = new Date(), today = '', size = 1.9 } = {}) {
+  if (!memo || !hasPet(memo.sender, art)) return null;
+  const feeling = rowFeeling(memo, { now, today });
+  const pet = petOf(memo.sender);
+  const art0 = picOrDrawing(el, artPicture(memo.sender, feeling.key, art), drawPet(memo.sender, { mood: 'calm' }), size);
+  const node = el('span', { className: ['pet', 'head', 'still', pet.species, pet.pet.toLowerCase(), `feel-${feeling.key}`].join(' '), title: pet.pet }, art0);
+  node.setAttribute('aria-hidden', 'true');
   return node;
 }
