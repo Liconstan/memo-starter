@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Memo Agents</title>
+<link rel="stylesheet" href="/ui/common.css">
+<!-- The theme of the last visit, before the first paint, so the page does not flash: light by day, dark by night
+     (memo 1407, ui/theme.js keeps "<theme>|<until>" in memo-theme-now; 0 is no end). -->
+<script>try{var t=(localStorage.getItem('memo-theme-now')||'').split('|');if((t[0]==='light'||t[0]==='dark')&&(t[1]==='0'||Date.now()<Number(t[1])))document.documentElement.setAttribute('data-theme',t[0]);}catch(e){}</script>
+<link rel="icon" href="/ui/icon.png">
+<link rel="apple-touch-icon" href="/ui/icon.png">
+<meta name="apple-mobile-web-app-title" content="Memo">
+</head>
+<body>
+<div class="app">
+<aside class="side">
+  <a class="brand" href="/inbox"><img class="mark" src="/ui/icon.png" alt="" aria-hidden="true"><span><b>Memo</b><small>The queue of <span class="cap">__OWNER__</span></small></span></a>
+  <nav class="side-nav" aria-label="Pages">
+    <a class="nav" href="/inbox"><span class="ico ico-inbox" aria-hidden="true"></span>Inbox</a>
+    <a class="nav on" href="/agents" aria-current="page"><span class="ico ico-agents" aria-hidden="true"></span>Agents<span class="badge soft" id="nav-agents" hidden></span></a>
+    <a class="nav" href="/system"><span class="ico ico-system" aria-hidden="true"></span>System</a>
+  </nav>
+  <div class="owner"><span id="owner-avatar"></span><div><b class="cap">__OWNER__</b><small>Owner of the queue</small></div></div>
+</aside>
+<div class="page">
+<form id="token-form" hidden>
+  <input name="token" type="text" placeholder="Token" autocomplete="off" spellcheck="false" data-1p-ignore data-lpignore="true" style="-webkit-text-security: disc" required aria-label="Token">
+  <button>Save</button>
+</form>
+<p id="note" role="status" hidden></p>
+<section class="hero">
+  <div>
+    <p class="eyebrow">Your agents</p>
+    <h1>Agents</h1>
+    <p class="lead" id="lead">Each agent has one row: its state, its status line, and its counts of open memos.</p>
+  </div>
+</section>
+<div class="columns">
+  <div class="col-main">
+    <section class="card"><div class="card-head"><h2>All agents</h2></div><main id="list"></main></section>
+    <!-- The one-time setup link of the GitHub Pages Inbox. Shown only when this computer syncs with the GitHub Inbox. -->
+    <section class="card setup-phone" id="setup-phone" hidden>
+      <div class="card-head"><h2>Set up phone</h2></div>
+      <p class="dim">The Inbox also runs from GitHub, so you can read and answer memos when this computer is off. Each phone or computer needs one setup link, once.</p>
+      <ol>
+        <li>On github.com, make a GitHub key: Settings, Developer settings, Personal access tokens, Fine-grained tokens, Generate new token. Choose only the private Inbox repository, and under Repository permissions give Contents: Read and write. Copy the key. It starts with github_pat_.</li>
+        <li>Paste the key below and press Make setup link.</li>
+        <li>Copy the link and send it to your iPhone. Open it in Safari once. Then tap Share and Add to Home Screen.</li>
+        <li>Open the Memo app from the Home Screen. It has its own storage, so paste the same link into its form once more. Then delete the link from wherever you sent it.</li>
+      </ol>
+      <form id="setup-form">
+        <input name="ghKey" type="password" placeholder="Paste your GitHub key" autocomplete="off" spellcheck="false" data-1p-ignore data-lpignore="true" required aria-label="Paste your GitHub key">
+        <button>Make setup link</button>
+      </form>
+      <div id="setup-result" class="row setup-link" hidden></div>
+    </section>
+  </div>
+  <aside class="col-side">
+    <section class="card keys"><div class="card-head"><h2>A look inside</h2></div>
+      <p class="dim">To look at a session, run this in a terminal:</p>
+      <p><kbd>tmux attach -t memo-main</kbd></p>
+      <p class="dim">To leave it, press <kbd>⌃</kbd><kbd>b</kbd>, then <kbd>d</kbd>.</p>
+      <p class="dim">"Stop" asks the agent for a recap, then ends the session. The next session gets the recap after its charter.</p>
+    </section>
+  </aside>
+</div>
+</div>
+</div>
+<!-- The paperclip icon for attachments and file links. ui/markdown.js copies it (paperclip()). -->
+<template id="paperclip"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></template>
+<script type="module">
+import { api, el, button, tokenForm, note, age, loadImages, avatar, ownerAvatar } from '/ui/common.js';
+import { render as markdown } from '/ui/markdown.js';
+import { stateWord, waitingLists, statusLine, helperGroups, finishedWords } from '/ui/agentstate.js';
+// The names the pages show for the agents (memo 1408).
+import { displayName } from '/ui/agentstate.js';
+import { blockedView } from '/ui/blocked.js';
+import { usageView, startCountdowns } from '/ui/usage.js';
+import { petView } from '/ui/petview.js';
+
+const list = document.getElementById('list');
+document.getElementById('owner-avatar').replaceWith(ownerAvatar('__OWNER__'));
+// Day and night by the sun, with the Theme button in the side bar (memo 1407, ui/theme.js). A server from before that
+// file does not give it: then the page keeps the theme of the device.
+import('/ui/theme.js').then((m) => m.startTheme()).catch(() => {});
+// The address of the Inbox, from the nav: /inbox here, index.html on the GitHub copy. A memo link adds #memo-<id>.
+const inboxHref = document.querySelector('.side-nav a.nav').getAttribute('href');
+
+// The state of an agent (ui/agentstate.js): Idle while it waits for memos in `memo wait` or sits at its prompt,
+// Working while it runs a turn, Stopped when its session is not there.
+function state(agent) {
+  if (agent.kind === 'short') return `Last run: ${age(agent.updated)}`;
+  if (agent.dispatch?.state === 'uncertain') return 'Wakeup needs inspection: delivery was not confirmed; no automatic retry';
+  if (agent.runtime === 'codex-desktop') return agent.online
+    ? `${stateWord(agent)}, in the Codex desktop app`
+    : 'No recent contact: desktop work wakes when a memo arrives';
+  if (agent.kind === 'remote' && !agent.online) return `Offline${agent.contact ? `, last contact ${age(agent.contact)}` : ''}`;
+  if (agent.stopping_since) return 'Stopping, waits for the recap';
+  const word = stateWord(agent);
+  if (word === 'Idle') return agent.kind === 'remote' ? 'Idle, waits for memos on a different computer' : 'Idle, waits for memos';
+  if (word === 'Working') return agent.kind === 'remote' ? 'Working, on a different computer' : 'Working';
+  return word;
+}
+
+function control(agent) {
+  if (agent.stopping_since) return button('Stop now', () => run('/api/agent/stop', { name: agent.name, now: true }), 'End the session immediately, with no recap');
+  if (agent.running) return button('Stop', () => run('/api/agent/stop', { name: agent.name }), 'Ask for a recap, then end the session');
+  return button('Start', () => run('/api/agent/start', { name: agent.name }));
+}
+
+// A blocked agent: the box with the question and the buttons that answer it is in ui/blocked.js, shared with the Inbox.
+
+// The helpers of an agent: the subagents it started with `memo helper`. The running ones show, with their start
+// time; the done ones of the last day, with their start and end times, are inside a closed <details>, "3 finished
+// helpers" (memo 1190). The page loads itself again each 5 seconds, so it remembers which of them she opened.
+const clock = (iso) => new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+const openDone = new Set(); // the names of the agents whose finished helpers she opened
+const helperItem = (h) => el('div', { className: h.running ? 'item' : 'item done' },
+  el('span', { className: h.running ? 'state on' : 'state', title: h.running ? 'Running' : 'Done' }),
+  el('div', { className: 'body' },
+    el('div', { className: 'line' }, el('b', {}, h.label), el('span', { className: 'model' }, h.model)),
+    el('div', { className: 'sub' }, h.running ? `Running since ${clock(h.started)} (${age(h.started)})` : `Done ${age(h.ended)} · ${clock(h.started)} to ${clock(h.ended)}`)));
+function finishedHelpers(name, done, item) {
+  const box = el('details', { className: 'helpers-done', open: openDone.has(name) }, el('summary', {}, finishedWords(done.length)), ...done.map(item));
+  box.addEventListener('toggle', () => { if (box.open) openDone.add(name); else openDone.delete(name); });
+  return box;
+}
+function helpersView(agent) {
+  const { running, done } = helperGroups(agent.helpers);
+  return el('div', { className: 'helpers' },
+    el('div', { className: 'who' }, el('b', {}, 'Helpers'), ` · ${running.length} running`),
+    ...running.map(helperItem),
+    done.length ? finishedHelpers(agent.name, done, helperItem) : '');
+}
+
+// The open memos of an agent: the memos that wait on the agent, and the memos from the agent that wait on the owner,
+// each as a numbered list in the order of the Inbox, with a link that opens the memo there.
+function waitsView(agent) {
+  return el('div', { className: 'waits' }, ...waitingLists(agent, '__OWNER__').map((w) => el('div', { className: 'wait' },
+    el('div', { className: 'who' }, el('b', {}, w.label), ` · ${w.count}`),
+    w.items?.length ? el('ol', {}, ...w.items.map((m) => el('li', {},
+      el('a', { href: `${inboxHref}#memo-${m.id}`, title: 'Open this memo in the Inbox' }, el('span', { className: 'id' }, `#${m.id}`), ` ${m.title}`),
+      m.postponed ? el('span', { className: 'dim' }, ' (postponed)') : '')))
+      : el('p', { className: 'dim' }, 'None.'))));
+}
+
+function view(agent) {
+  const word = stateWord(agent);
+  const on = agent.running || agent.online;
+  // The pet of the agent with its feeling in the place of the letter (memo 1242, ui/petview.js): the drawing, then
+  // the word of the feeling with the reason as its tooltip, "Tired: account at 86 percent".
+  const parts = [el('div', { className: 'memo-head' }, petView(agent, el, { size: 3 }).node,
+    // The model of the agent's own session, "Opus 5.5", from its agents.json entry through the server (memo 1159).
+    el('div', { className: 'meta' }, el('span', { className: 'sender', title: `Agent ${agent.name}` }, displayName(agent.name)), agent.model ? el('span', { className: 'model', title: 'The model of this agent' }, agent.model) : '', ` ${state(agent)}`),
+    el('span', { className: word === 'Idle' ? 'state idle' : on ? 'state on' : 'state', title: word || (on ? 'On' : 'Off'), style: 'margin-left:auto;margin-top:0' }))];
+  // The status line and how long ago the agent set it, the same words as the Inbox strip (ui/agentstate.js statusLine).
+  if (agent.kind !== 'short') {
+    const line = statusLine(agent, age);
+    parts.push(el('p', { className: 'text' }, line ? `${line.text}, ${line.when}` : 'No status line.'));
+  }
+  // The usage of the Claude account of the agent: session, week, Fable (ui/usage.js). The Inbox card shows the same line.
+  if (agent.kind === 'long') parts.push(usageView(agent, el));
+  if (agent.runtime === 'codex-desktop') parts.push(usageView(agent, el));
+  parts.push(waitsView(agent));
+  if (agent.helpers?.length) parts.push(helpersView(agent));
+  if (agent.kind !== 'short' && agent.recap && !agent.running && !agent.online) {
+    parts.push(el('details', { open: true }, el('summary', {}, `Recap, ${age(agent.recap_at)}`), el('div', { className: 'md' }, ...markdown(agent.recap, el))));
+  }
+  if (agent.blocked) parts.push(blockedView(agent, run));
+  if (agent.kind === 'long') parts.push(el('div', { className: 'row' }, control(agent)));
+  // A working agent's card is green, as on the Inbox (memo 978).
+  const card = el('article', { className: word === 'Working' ? 'memo working' : 'memo' }, ...parts);
+  card.setAttribute('aria-label', `${displayName(agent.name)}: ${state(agent) || 'done'}`);
+  return card;
+}
+
+async function load() {
+  try {
+    const agents = await api('/api/agents');
+    list.replaceChildren(...agents.map(view));
+    loadImages(list);
+    const badge = document.getElementById('nav-agents');
+    const running = agents.filter((a) => a.running || a.online).length;
+    badge.textContent = String(running);
+    badge.hidden = !running;
+    note('');
+  } catch (error) { note(error.message); }
+}
+async function run(path, body) {
+  try { await api(path, body); } catch (error) { note(error.message); return; }
+  await load();
+}
+
+// "Set up phone": the card shows only when the server syncs with the GitHub Inbox. The link holds both keys, so the
+// page shows it once and keeps no copy; the key field is cleared after each link. On an iPhone the Home Screen app has
+// its own storage, so the link goes in twice: once in Safari, once in the app (ui/ledger.js, showSetup).
+const setupCard = document.getElementById('setup-phone');
+const setupForm = document.getElementById('setup-form');
+const setupResult = document.getElementById('setup-result');
+async function showSetup() {
+  if (globalThis.MEMO_LEDGER) return; // the GitHub copy of the page: the link is made on the computer only
+  try {
+    const status = await api('/api/ledger/status');
+    setupCard.hidden = !status.configured;
+  } catch { setupCard.hidden = true; }
+}
+setupForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const field = setupForm.elements.ghKey;
+  const submit = setupForm.querySelector('button');
+  submit.disabled = true;
+  try {
+    const { link } = await api('/api/ledger/setup-link', { ghKey: field.value });
+    field.value = '';
+    const said = el('span', { className: 'dim' });
+    setupResult.replaceChildren(
+      el('a', { href: link, target: '_blank', rel: 'noreferrer' }, 'Open the Inbox on this device'),
+      button('Copy link', async () => {
+        try { await navigator.clipboard.writeText(link); said.textContent = 'Copied. Open it in Safari on your iPhone, then paste it in the Home Screen app.'; } catch { said.textContent = 'The browser did not allow a copy. Press and hold the link instead.'; }
+      }, 'Copy the setup link'),
+      said,
+      el('p', { className: 'dim' }, 'The link holds your keys. Open it on each device once, then do not share it.'));
+    setupResult.hidden = false;
+    note('');
+  } catch (error) { note(error.message); } finally { submit.disabled = false; }
+});
+
+tokenForm(() => { load(); showSetup(); });
+startCountdowns(document);
+load();
+showSetup();
+setInterval(load, 5000);
+</script>
+</body>
+</html>

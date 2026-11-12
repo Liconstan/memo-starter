@@ -1,0 +1,14 @@
+# Everything of one installation stays out of git: your answers, your token, your memos, your charters.
+my-setup/
+node_modules/
+.DS_Store
+
+# The Memo app: its own data and the files of this installation.
+app/node_modules/
+app/data/
+app/work/
+app/local/
+app/.env
+app/.env.*
+!app/.env.example
+app/site/

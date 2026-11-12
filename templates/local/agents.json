@@ -1,0 +1,4 @@
+[
+  { "name": "main", "kind": "long", "dir": "[AGENT_WORK_DIR]", "model": "[MAIN_AGENT_MODEL]", "charter": "team" },
+  { "name": "second", "kind": "long", "dir": "[AGENT_WORK_DIR]", "model": "[SECOND_AGENT_MODEL]", "charter": "team", "env": { "CLAUDE_CONFIG_DIR": "[SECOND_CLAUDE_CONFIG_DIR]" } }
+]

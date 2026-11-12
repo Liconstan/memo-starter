@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Each night: restarts the agents main and second, each with a recap, so the nightly sync starts in a fresh session. The hour is by the clock of this Mac. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>memo.nightly-restart</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>[MEMO_APP_PATH]/scripts/scheduled.sh</string>
+    <string>restart</string>
+    <string>main</string>
+    <string>second</string>
+  </array>
+  <key>WorkingDirectory</key><string>[MEMO_APP_PATH]</string>
+  <key>StartCalendarInterval</key>
+  <dict><key>Hour</key><integer>[NIGHTLY_SYNC_HOUR]</integer><key>Minute</key><integer>0</integer></dict>
+  <key>StandardOutPath</key><string>[MEMO_APP_PATH]/data/scheduled.log</string>
+  <key>StandardErrorPath</key><string>[MEMO_APP_PATH]/data/scheduled.log</string>
+</dict>
+</plist>

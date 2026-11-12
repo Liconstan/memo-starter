@@ -1,0 +1,14 @@
+# Never commit secrets.
+.secrets/
+*.env
+.env*
+
+# Private chat exports: they stay on this computer.
+raw/private/
+
+# Too large for GitHub, and not notes.
+*.zip
+
+# Build and system files.
+node_modules/
+.DS_Store

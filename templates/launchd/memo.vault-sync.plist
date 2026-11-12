@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Each night, 30 minutes after the restart: sends the agent second the memo that starts the nightly vault sync. The words "Nightly vault sync" at the start keep the memo with its agent (app/src/handover.js). -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>memo.vault-sync</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>[MEMO_APP_PATH]/scripts/scheduled.sh</string>
+    <string>memo</string>
+    <string>second</string>
+    <string>Nightly vault sync. Follow scripts/nightly-sync.md in [VAULT_PATH].</string>
+  </array>
+  <key>WorkingDirectory</key><string>[MEMO_APP_PATH]</string>
+  <key>StartCalendarInterval</key>
+  <dict><key>Hour</key><integer>[NIGHTLY_SYNC_HOUR]</integer><key>Minute</key><integer>30</integer></dict>
+  <key>StandardOutPath</key><string>[MEMO_APP_PATH]/data/scheduled.log</string>
+  <key>StandardErrorPath</key><string>[MEMO_APP_PATH]/data/scheduled.log</string>
+</dict>
+</plist>

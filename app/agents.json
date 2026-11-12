@@ -1,0 +1,3 @@
+[
+  { "name": "main", "kind": "long", "dir": "~", "model": "claude-opus-5-5" }
+]

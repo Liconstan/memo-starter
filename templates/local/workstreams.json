@@ -1,0 +1,10 @@
+{
+  "REL": "Relationships: partners, key contacts and outreach of [YOUR_ORG]",
+  "SPEC": "Special projects: one-off projects and experiments",
+  "FUND": "Funding: grants, donors, revenue, fundraising",
+  "OPS": "Running [YOUR_ORG]: finance, compliance, board, team and hiring, tools and data",
+  "PROG": "Programs: the main things [YOUR_ORG] delivers, events, comms and website",
+  "COMM": "Community: local events, networking",
+  "SYS": "Personal systems: Memo and the agents",
+  "ME": "Personal: health and life admin"
+}

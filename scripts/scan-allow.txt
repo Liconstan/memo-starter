@@ -1,0 +1,19 @@
+# Text that the general patterns of scripts/scan.sh match, and that is not personal: the made-up values of the
+# examples and the tests. One extended regular expression in each line. Your own exceptions go in
+# app/local/scan-allow.txt, which git ignores.
+# Mail addresses at the reserved example domains, and addresses of services.
+@[Ee]xample\.(com|org|net)
+noreply@
+@users\.noreply\.github\.com
+git@github\.com
+@(group|resource)\.calendar\.google\.com
+[^A-Za-z0-9._%+-](a|own|room|declined|unanswered|x|cam)@(b\.com|x)
+# Home folders of the examples.
+/Users/(you|name|example|Shared)/
+/home/(you|name|node|user)/
+# The phone number of the examples: its last seven digits are in the range that is kept for fiction.
+\+12025550123
+# Tailscale names of the examples.
+(mac|mac-mini|your-mac)\.(example|tail1a2b3c|your-tailnet)\.ts\.net
+# The made-up GitHub key of app/test/setup-link.test.js: the alphabet in order, not a key.
+github_pat_11ABCDEFG0123456789abcdefghijklmnopqrstuvwxyz

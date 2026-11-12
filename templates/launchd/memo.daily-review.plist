@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Monday to Friday: sends the agent second the memo that starts the daily review. The words "Daily review" at the start keep the memo with its agent (app/src/handover.js). -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>memo.daily-review</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>[MEMO_APP_PATH]/scripts/scheduled.sh</string>
+    <string>memo</string>
+    <string>second</string>
+    <string>Daily review. Follow scripts/daily-review.md in [VAULT_PATH].</string>
+  </array>
+  <key>WorkingDirectory</key><string>[MEMO_APP_PATH]</string>
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>[DAILY_REVIEW_HOUR]</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>[DAILY_REVIEW_HOUR]</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>[DAILY_REVIEW_HOUR]</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>[DAILY_REVIEW_HOUR]</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>[DAILY_REVIEW_HOUR]</integer><key>Minute</key><integer>0</integer></dict>
+  </array>
+  <key>StandardOutPath</key><string>[MEMO_APP_PATH]/data/scheduled.log</string>
+  <key>StandardErrorPath</key><string>[MEMO_APP_PATH]/data/scheduled.log</string>
+</dict>
+</plist>

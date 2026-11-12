@@ -1,0 +1,18 @@
+{
+  "name": "memo-starter",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "A starter kit for Memo: a work queue for one person and their Claude Code agents, with a vault template, skills, charters and a guided setup.",
+  "scripts": {
+    "setup": "node scripts/configure.mjs",
+    "check": "node scripts/configure.mjs --check",
+    "scan": "sh scripts/scan.sh",
+    "start": "sh app/scripts/start.sh",
+    "test": "node --test test/kit.test.js && npm --prefix app test"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Memo System</title>
+<link rel="stylesheet" href="/ui/common.css">
+<!-- The theme of the last visit, before the first paint, so the page does not flash: light by day, dark by night
+     (memo 1407, ui/theme.js keeps "<theme>|<until>" in memo-theme-now; 0 is no end). -->
+<script>try{var t=(localStorage.getItem('memo-theme-now')||'').split('|');if((t[0]==='light'||t[0]==='dark')&&(t[1]==='0'||Date.now()<Number(t[1])))document.documentElement.setAttribute('data-theme',t[0]);}catch(e){}</script>
+<link rel="icon" href="/ui/icon.png">
+<link rel="apple-touch-icon" href="/ui/icon.png">
+<meta name="apple-mobile-web-app-title" content="Memo">
+</head>
+<body>
+<div class="app">
+<aside class="side">
+  <a class="brand" href="/inbox"><img class="mark" src="/ui/icon.png" alt="" aria-hidden="true"><span><b>Memo</b><small>The queue of <span class="cap">__OWNER__</span></small></span></a>
+  <nav class="side-nav" aria-label="Pages">
+    <a class="nav" href="/inbox"><span class="ico ico-inbox" aria-hidden="true"></span>Inbox</a>
+    <a class="nav" href="/agents"><span class="ico ico-agents" aria-hidden="true"></span>Agents</a>
+    <a class="nav on" href="/system" aria-current="page"><span class="ico ico-system" aria-hidden="true"></span>System</a>
+  </nav>
+  <div class="owner"><span id="owner-avatar"></span><div><b class="cap">__OWNER__</b><small>Owner of the queue</small></div></div>
+</aside>
+<div class="page">
+<form id="token-form" hidden>
+  <input name="token" type="text" placeholder="Token" autocomplete="off" spellcheck="false" data-1p-ignore data-lpignore="true" style="-webkit-text-security: disc" required aria-label="Token">
+  <button>Save</button>
+</form>
+<p id="note" role="status" hidden></p>
+<section class="hero">
+  <div>
+    <p class="eyebrow">How it all works</p>
+    <h1>System</h1>
+    <p class="lead">The sync with GitHub, the counts of your vault, the system map, and the rules your agents follow. You can edit the rules here.</p>
+  </div>
+</section>
+<div class="columns">
+  <div class="col-main">
+    <section class="card" aria-labelledby="h-sync">
+      <div class="card-head"><h2 id="h-sync">Sync with GitHub</h2><span id="checked" class="dim"></span></div>
+      <div id="sync" aria-live="polite"></div>
+      <div class="row"><button id="check" type="button">Check now</button></div>
+    </section>
+    <section class="card" aria-labelledby="h-dash" style="margin-top:1rem">
+      <div class="card-head"><h2 id="h-dash">Dashboard</h2></div>
+      <dl id="dash" class="sys-stats"></dl>
+    </section>
+    <section class="card" aria-labelledby="h-map" style="margin-top:1rem">
+      <div class="card-head"><h2 id="h-map">System map</h2></div>
+      <p id="map-meta" class="sys-note"></p>
+      <div class="row"><button id="map-show" type="button" aria-expanded="false">Show the map here</button><button id="map-build" type="button">Rebuild the map</button><a id="map-link" target="_blank" rel="noopener noreferrer" hidden>Open the published map</a></div>
+      <div id="map-box"></div>
+    </section>
+    <section class="card" aria-labelledby="h-charters" style="margin-top:1rem">
+      <div class="card-head"><h2 id="h-charters">Charters</h2></div>
+      <p class="sys-note">What each agent does alone and what it asks you. Agents use a new charter from their next start.</p>
+      <div id="group-charters"></div>
+    </section>
+    <section class="card" aria-labelledby="h-lessons" style="margin-top:1rem">
+      <div class="card-head"><h2 id="h-lessons">Shared lessons</h2></div>
+      <p class="sys-note">The rules every agent follows, from your replies. At most 40 entries.</p>
+      <div id="group-lessons"></div>
+    </section>
+    <section class="card" aria-labelledby="h-skills" style="margin-top:1rem">
+      <div class="card-head"><h2 id="h-skills">Agent skills</h2></div>
+      <p class="sys-note">How to do one kind of task the way you want it. Written and kept by the agents.</p>
+      <div id="group-skills"></div>
+    </section>
+    <section class="card" aria-labelledby="h-hand" style="margin-top:1rem">
+      <div class="card-head"><h2 id="h-hand">Hand-made skills</h2></div>
+      <p class="sys-note">Pinned copies of the skills in your Claude account. View only.</p>
+      <div id="group-hand"></div>
+    </section>
+  </div>
+  <aside class="col-side">
+    <section class="card keys"><div class="card-head"><h2>How this page works</h2></div>
+      <p class="dim">The server checks the sync every 5 minutes in the background. The page shows the last result and never waits on the network. Check now runs a check at once.</p>
+      <p class="dim">A file loads when you open it. Edit opens the text in a box. Save writes the file, commits it alone, and pushes to GitHub. If an agent changed the file first, the save stops, your text stays in the box, and you can load the new version.</p>
+      <p class="dim">After a change to a charter, the lessons or a skill, from you or from an agent, the server rebuilds the map within about 10 seconds. This page loads new data every 30 seconds.</p>
+    </section>
+  </aside>
+</div>
+</div>
+</div>
+<script type="module">
+import { api, el, button, tokenForm, note, age, ownerAvatar } from '/ui/common.js';
+import { render as markdown, makeFrame } from '/ui/markdown.js';
+
+document.getElementById('owner-avatar').replaceWith(ownerAvatar('__OWNER__'));
+// Day and night by the sun, with the Theme button in the side bar (memo 1407, ui/theme.js). A server from before that
+// file does not give it: then the page keeps the theme of the device.
+import('/ui/theme.js').then((m) => m.startTheme()).catch(() => {});
+const byId = (id) => document.getElementById(id);
+let data = null;
+let version = null;
+const open = new Map(); // file id -> { doc, body, hash, text, loaded, editing, draft }
+let mapFrame = null;
+let mapShownAt = null;
+
+const when = (iso) => (iso ? `${age(iso)} (${new Date(iso).toLocaleString()})` : 'never');
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+function syncBlock(what, s, extra) {
+  const node = el('p', { className: `sys-sync ${s.line.level}` }, el('span', { className: 'what' }, what), ' ', el('span', { className: 'sys-state' }, s.line.text));
+  const details = [];
+  if (extra) details.push(extra);
+  if (s.changed?.length) details.push(`Changed: ${s.changed.join(', ')}${s.uncommitted > s.changed.length ? ', and more' : ''}.`);
+  if (details.length) node.append(el('span', { className: 'detail' }, details.join(' ')));
+  return node;
+}
+
+function showSync() {
+  const { vault, code } = data;
+  const vaultExtra = [vault.fetchedAt ? `Last fetch from GitHub ${when(vault.fetchedAt)}.` : 'No fetch yet.', vault.mapUncommitted ? 'The rebuilt map is not committed yet; the nightly sync commits it.' : ''].filter(Boolean).join(' ');
+  const codeExtra = code.unknownRemote ? `GitHub has a commit on ${code.remoteBranch} that this Mac does not have. Ask an agent to look.` : `Branch ${code.branch} on this computer against ${code.remoteBranch} on GitHub.`;
+  byId('sync').replaceChildren(syncBlock('Vault:', vault, vaultExtra), syncBlock('Memo code backup:', code, codeExtra));
+  byId('checked').textContent = vault.checkedAt ? `Last check ${age(vault.checkedAt)}` : 'Not checked yet';
+}
+
+function stat(label, value, small, wide = false) {
+  const dd = el('dd', {}, String(value));
+  if (small) dd.append(el('small', {}, small));
+  return el('div', { className: wide ? 'wide' : '' }, el('dt', {}, label), dd);
+}
+
+function showDashboard() {
+  const d = data.dashboard;
+  if (!d || d.error) { byId('dash').replaceChildren(stat('Dashboard', 'not available', d?.error || '', true)); return; }
+  byId('dash').replaceChildren(
+    stat('People', d.people), stat('Funders', d.funders), stat('Projects', d.projects),
+    stat('Meetings this month', d.meetingsThisMonth, d.month),
+    stat('Open Asana tasks', d.asana ? d.asana.open : 'unknown', d.asana?.who ? `${d.asana.who}: ${d.asana.mine}` : ''),
+    stat('Lessons', `${d.lessons.count} of ${d.lessons.max}`),
+    stat('Agent skills', d.skills.count, d.skills.stale ? `${plural(d.skills.stale, 'skill', 'skills')} not used in ${d.skills.staleDays} days` : 'all used in the last 30 days'),
+    stat('Hand-made skills', d.handSkills),
+    stat('Last sync run', d.sync ? d.sync.title : 'no entry', d.sync?.failures ? `Failures: ${d.sync.failures}` : '', true),
+  );
+}
+
+function showMap() {
+  const m = data.map;
+  // A vault with no map and no script that builds one: the card is not shown.
+  byId('h-map').closest('section').hidden = !m.exists && !m.available;
+  const build = m.build || {};
+  const parts = [m.exists ? `Built ${m.builtText || when(m.builtAt)}.` : 'The map file is not there yet.'];
+  if (build.running) parts.push('A rebuild runs now.');
+  else if (build.at) parts.push(build.error ? `The last rebuild (${age(build.at)}) failed, so this is the last good map. Error: ${build.error}` : `Rebuilt ${age(build.at)}.`);
+  byId('map-meta').textContent = parts.join(' ');
+  const link = byId('map-link');
+  link.hidden = !m.url;
+  if (m.url) link.href = m.url;
+  byId('map-build').disabled = !!build.running;
+  // The map shown on the page is older than the file: load it again.
+  if (mapFrame && mapShownAt && m.builtAt && m.builtAt !== mapShownAt) loadMap();
+}
+
+async function loadMap() {
+  const box = byId('map-box');
+  try {
+    const m = await api('/api/system/map');
+    if (!m.html) { box.replaceChildren(el('p', { className: 'dim' }, 'The map file is not there yet. Rebuild it, or run the nightly sync.')); return; }
+    // The map is a document of its own. It shows in a closed frame that cannot reach this page or the token.
+    const doc = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data: blob:"></head><body style="margin:0">${m.html}<script>const s=()=>parent.postMessage({systemMapHeight:document.documentElement.scrollHeight},'*');new ResizeObserver(s).observe(document.documentElement);addEventListener('load',s);s();</scr${'ipt'}></body></html>`;
+    mapFrame = makeFrame(doc, 'The system map', 'sys-map');
+    mapShownAt = m.builtAt;
+    box.replaceChildren(mapFrame);
+  } catch (error) { note(error.message); }
+}
+window.addEventListener('message', (event) => {
+  const height = event.data?.systemMapHeight;
+  if (!Number.isFinite(height) || !mapFrame || event.source !== mapFrame.contentWindow) return;
+  mapFrame.style.height = `${Math.min(40000, Math.max(200, Math.ceil(height)))}px`;
+});
+byId('map-show').addEventListener('click', (event) => {
+  const b = event.currentTarget;
+  if (mapFrame) { byId('map-box').replaceChildren(); mapFrame = null; mapShownAt = null; b.textContent = 'Show the map here'; b.setAttribute('aria-expanded', 'false'); return; }
+  b.textContent = 'Hide the map';
+  b.setAttribute('aria-expanded', 'true');
+  loadMap();
+});
+byId('map-build').addEventListener('click', async (event) => {
+  const b = event.currentTarget;
+  b.disabled = true;
+  b.classList.add('sending');
+  try { await api('/api/system/rebuild', {}); await load(); } catch (error) { note(error.message); } finally { b.disabled = false; b.classList.remove('sending'); }
+});
+
+// ---------- the files ----------
+function meta(doc) {
+  const parts = [];
+  if (doc.group === 'skills') parts.push(doc.last_used ? `Last used ${doc.last_used}` : 'Never used');
+  if (doc.exists) parts.push(`${Math.round(doc.size / 100) / 10} kB`, `changed ${age(doc.mtime)}`);
+  else parts.push('not there yet');
+  parts.push(doc.path);
+  return parts.join('. ');
+}
+
+function docView(doc) {
+  const details = el('details', { className: 'doc' });
+  details.dataset.id = doc.id;
+  const summary = el('summary', {}, el('h3', {}, doc.title));
+  if (doc.description) summary.append(el('span', { className: 'dim' }, doc.description));
+  summary.append(el('span', { className: `meta${doc.stale ? ' stale' : ''}` }, meta(doc)));
+  const body = el('div', { className: 'body' });
+  details.append(summary, body);
+  details.addEventListener('toggle', () => { if (details.open && !open.get(doc.id)?.loaded) loadDoc(doc, body); });
+  return details;
+}
+
+async function loadDoc(doc, body) {
+  body.replaceChildren(el('p', { className: 'dim' }, 'Loading.'));
+  try {
+    const file = await api(`/api/system/file?id=${encodeURIComponent(doc.id)}`);
+    open.set(doc.id, { doc, body, hash: file.hash, text: file.text, loaded: true, editing: false, draft: null });
+    showDoc(doc.id);
+  } catch (error) { body.replaceChildren(el('p', { className: 'result bad' }, error.message)); }
+}
+
+function showDoc(id, result = null) {
+  const state = open.get(id);
+  const { doc, body } = state;
+  const view = el('div', { className: 'md' }, ...markdown(state.text, el));
+  const row = el('div', { className: 'row' });
+  if (doc.editable) row.append(button('Edit', () => editDoc(id), `Edit ${doc.title} in the browser`));
+  else row.append(el('span', { className: 'dim' }, doc.note));
+  row.append(el('span', { className: 'version' }, `Version ${state.hash.slice(0, 8)}`));
+  body.replaceChildren(view, row);
+  if (result) body.append(result);
+  state.editing = false;
+}
+
+function editDoc(id) {
+  const state = open.get(id);
+  const { doc, body } = state;
+  const area = el('textarea', { className: 'editor', value: state.draft ?? state.text, rows: 24, spellcheck: true });
+  area.setAttribute('aria-label', `Text of ${doc.title}`);
+  const result = el('p', { className: 'result', hidden: true });
+  const say = (text, level) => { result.textContent = text; result.className = `result ${level}`; result.hidden = !text; };
+  const save = button('Save', async (b) => {
+    b.disabled = true;
+    b.classList.add('sending');
+    state.draft = area.value;
+    try {
+      const r = await api('/api/system/save', { id, text: area.value, base: state.hash });
+      state.text = area.value;
+      state.hash = r.hash;
+      state.draft = null;
+      const notes = [r.pushed ? 'Saved, committed and pushed to GitHub.' : (r.error || 'Saved.'), r.note || ''].filter(Boolean);
+      showDoc(id, el('p', { className: `result ${r.pushed ? 'good' : 'warn'}` }, notes.join(' ')));
+      load();
+    } catch (error) {
+      say(error.message, 'bad');
+      if (/changed since you opened it/.test(error.message)) reload.hidden = false;
+    } finally { b.disabled = false; b.classList.remove('sending'); }
+  }, 'Save this text');
+  const cancel = button('Cancel', () => { state.draft = null; showDoc(id); }, 'Leave the editor without a save');
+  const reload = button('Load the new version', async () => {
+    state.draft = area.value;
+    try {
+      const file = await api(`/api/system/file?id=${encodeURIComponent(doc.id)}`);
+      state.hash = file.hash;
+      state.text = file.text;
+      say('This is the new version from the disk. Your text is still in the box below it; compare the two, then save again if you want yours.', 'warn');
+      reload.hidden = true;
+      body.replaceChildren(el('div', { className: 'md' }, ...markdown(file.text, el)), el('p', { className: 'dim' }, 'Your text:'), area, result, el('div', { className: 'row' }, save, cancel));
+    } catch (error) { say(error.message, 'bad'); }
+  }, 'Load the version that is on the disk now and keep your text in the box');
+  reload.hidden = true;
+  const hint = el('p', { className: 'dim' }, doc.where === 'local' ? 'This is the live charter on the Mac mini. A save keeps a copy of the old text in local/charters/.history and a backup in the vault.' : 'A save pulls the vault, commits this file alone, and pushes to GitHub.');
+  body.replaceChildren(hint, area, result, el('div', { className: 'row' }, save, cancel, reload));
+  state.editing = true;
+  area.focus();
+}
+
+function showFiles() {
+  for (const group of ['charters', 'lessons', 'skills', 'hand']) {
+    const box = byId(`group-${group}`);
+    const docs = data.files.filter((f) => f.group === group);
+    if (!docs.length) { box.replaceChildren(el('p', { className: 'dim' }, 'None.')); continue; }
+    const current = new Map([...box.querySelectorAll('details')].map((d) => [d.dataset.id, d]));
+    box.replaceChildren(...docs.map((doc) => {
+      const have = current.get(doc.id);
+      if (!have) return docView(doc);
+      // A file that is open keeps its view and its editor. Its meta line follows the disk.
+      const m = have.querySelector('summary .meta');
+      m.textContent = meta(doc);
+      m.className = `meta${doc.stale ? ' stale' : ''}`;
+      const state = open.get(doc.id);
+      if (state?.loaded && !state.editing && doc.mtime !== state.doc.mtime) { state.doc = doc; loadDoc(doc, state.body); } else if (state) state.doc = doc;
+      return have;
+    }));
+  }
+}
+
+async function load() {
+  try {
+    data = await api('/api/system');
+    version = data.version;
+    showSync();
+    showDashboard();
+    showMap();
+    showFiles();
+    note('');
+  } catch (error) { note(error.message); }
+}
+async function poll() {
+  try {
+    const v = await api('/api/system/version');
+    if (v.version !== version) await load();
+  } catch { /* the next poll tries again */ }
+}
+byId('check').addEventListener('click', async (event) => {
+  const b = event.currentTarget;
+  b.disabled = true;
+  b.classList.add('sending');
+  try { data = await api('/api/system/check', {}); version = data.version; showSync(); showDashboard(); } catch (error) { note(error.message); } finally { b.disabled = false; b.classList.remove('sending'); }
+});
+
+tokenForm(load);
+load();
+setInterval(poll, 30000);
+</script>
+</body>
+</html>

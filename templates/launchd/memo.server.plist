@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Starts the Memo server at login and keeps it running. Copy to ~/Library/LaunchAgents/ (README, step 6). -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>memo.server</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>[MEMO_APP_PATH]/scripts/start.sh</string>
+  </array>
+  <key>WorkingDirectory</key><string>[MEMO_APP_PATH]</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>30</integer>
+  <!-- The tmux sessions of the agents must continue when launchd restarts the server. -->
+  <key>AbandonProcessGroup</key><true/>
+  <key>StandardOutPath</key><string>[MEMO_APP_PATH]/data/server.log</string>
+  <key>StandardErrorPath</key><string>[MEMO_APP_PATH]/data/server.log</string>
+</dict>
+</plist>

@@ -1,0 +1,9 @@
+{
+  "note": "Kept by the agents: change this file whenever something that runs on a schedule is added, changed or removed. It feeds the Scheduled view of the Inbox.",
+  "updated": "[SYNC_START_DATE]",
+  "items": [
+    { "name": "Nightly restart", "when": "Every day, [NIGHTLY_SYNC_HOUR]:00", "where": "launchd, memo.nightly-restart", "what": "Restarts main and second, each with a recap, so the nightly sync starts in a fresh session.", "until": "" },
+    { "name": "Nightly vault sync", "when": "Every day, [NIGHTLY_SYNC_HOUR]:30", "where": "launchd, memo.vault-sync", "what": "Sends second the memo that starts scripts/nightly-sync.md in the vault.", "until": "" },
+    { "name": "Daily review", "when": "Monday to Friday, [DAILY_REVIEW_HOUR]:00", "where": "launchd, memo.daily-review", "what": "Sends second the memo that starts scripts/daily-review.md in the vault.", "until": "" }
+  ]
+}

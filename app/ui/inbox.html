@@ -1,0 +1,1614 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Memo Inbox</title>
+<link rel="stylesheet" href="/ui/common.css">
+<!-- The theme of the last visit, before the first paint, so the page does not flash: light by day, dark by night
+     (memo 1407, ui/theme.js keeps "<theme>|<until>" in memo-theme-now; 0 is no end). -->
+<script>try{var t=(localStorage.getItem('memo-theme-now')||'').split('|');if((t[0]==='light'||t[0]==='dark')&&(t[1]==='0'||Date.now()<Number(t[1])))document.documentElement.setAttribute('data-theme',t[0]);}catch(e){}</script>
+<link rel="icon" href="/ui/icon.png">
+<link rel="apple-touch-icon" href="/ui/icon.png">
+<meta name="apple-mobile-web-app-title" content="Memo">
+</head>
+<body>
+<div class="app">
+<aside class="side">
+  <a class="brand" href="/inbox"><img class="mark" src="/ui/icon.png" alt="" aria-hidden="true"><span><b>Memo</b><small>The queue of <span class="cap">__OWNER__</span></small></span></a>
+  <nav class="side-nav" aria-label="Pages">
+    <a class="nav on" href="/inbox" aria-current="page"><span class="ico ico-inbox" aria-hidden="true"></span>Inbox<span class="badge" id="nav-count" hidden></span></a>
+    <a class="nav" href="/agents"><span class="ico ico-agents" aria-hidden="true"></span>Agents<span class="badge soft" id="nav-agents" hidden></span></a>
+    <a class="nav" href="/system"><span class="ico ico-system" aria-hidden="true"></span>System</a>
+  </nav>
+  <div class="side-title">Views</div>
+  <nav class="side-nav" id="views" aria-label="Views"></nav>
+  <div class="owner"><span id="owner-avatar"></span><div><b class="cap">__OWNER__</b><small>Owner of the queue</small></div></div>
+</aside>
+<div class="page">
+<header class="top">
+  <form id="capture">
+    <select name="to" aria-label="Agent" hidden></select>
+    <textarea name="text" rows="1" placeholder="Capture a task for the agent" autocomplete="off" required aria-label="Task"></textarea>
+    <button>Send</button>
+    <div class="thumbs" hidden></div>
+    <small id="pick" class="pick" hidden></small>
+    <small id="routing-hint" role="status" hidden></small>
+    <!-- What happens to the memo she just sent, until its agent has it (memo 1407, ui/sendstage.js): saved on the Mac,
+         waiting for the agent to ask for news, picked up. One line per memo, from what the server reports. -->
+    <div id="sent-track" class="sent-track" hidden></div>
+  </form>
+  <!-- The memos, the agents and the calendar load now. A phone has no other way to load the page again without closing it. -->
+  <button type="button" id="refresh" class="refresh" title="Load the memos and the agents again now">Refresh</button>
+</header>
+<form id="token-form" hidden>
+  <input name="token" type="text" placeholder="Token" autocomplete="off" spellcheck="false" data-1p-ignore data-lpignore="true" style="-webkit-text-security: disc" required aria-label="Token">
+  <button>Save</button>
+</form>
+<p id="note" role="status" hidden></p>
+<section class="hero">
+  <div>
+    <p class="eyebrow" id="greeting">Hello,</p>
+    <h1 class="cap">__OWNER__</h1>
+  </div>
+  <div class="hero-date" id="hero-date"></div>
+</section>
+<!-- The agent strip: one small card per agent with its state, what it does now, its running helpers, and for a blocked
+     agent the same answer buttons as the Agents page. On a phone each card is one line until tapped. -->
+<section class="agent-strip" id="agent-strip" aria-label="Agents"></section>
+<!-- A screen reader hears a change of state of an agent (idle, working, blocked); the other refreshes stay quiet. -->
+<p class="visually-hidden" id="agent-live" aria-live="polite"></p>
+<!-- The postponed memos, behind the "N postponed" count in the head of the list: each with its return time and "Bring back now". -->
+<section class="card later" id="later" hidden>
+  <div class="card-head"><h2>Postponed</h2><span class="dim">Back at 9:00 AM on their day</span></div>
+  <div id="later-list"></div>
+</section>
+<div class="columns">
+  <div class="col-main">
+    <section class="card queue-card">
+      <div class="card-head"><h2 id="queue-title">Memos</h2><span id="count"></span><nav class="tabs" id="filter" aria-label="Filter"></nav></div>
+      <div class="thead" id="thead" hidden><span></span><span>Memo</span><span>Due</span><span>Impact / Effort</span></div>
+      <main id="queue"></main>
+      <div id="answered-list" hidden></div>
+      <div id="scheduled-list" hidden></div>
+      <p id="empty" class="dim" hidden>No memos need you now.</p>
+    </section>
+  </div>
+  <aside class="col-side">
+    <section class="card today"><div class="card-head"><h2><button id="today-toggle" type="button" aria-expanded="true" aria-controls="today-body">Today</button></h2>
+      <button type="button" class="cal-now-btn" id="cal-manage" aria-expanded="false" aria-controls="cal-setup" title="Add or remove a calendar" hidden>Calendars</button></div>
+      <div id="today-body">
+        <div class="cal-head" id="cal-head">
+          <button type="button" class="cal-step" id="cal-prev" aria-label="Previous day">‹</button>
+          <div class="cal-date"><b id="cal-day" aria-live="polite"></b><small id="cal-zone"></small></div>
+          <button type="button" class="cal-step" id="cal-next" aria-label="Next day">›</button>
+          <button type="button" class="cal-now-btn" id="cal-today">Today</button>
+        </div>
+        <p class="dim cal-note" id="cal-note" hidden></p>
+        <form class="cal-setup" id="cal-setup" hidden>
+          <p class="dim">In Google Calendar on the web: Settings, click your calendar, then Integrate calendar. Copy Secret address in iCal format and paste it here.</p>
+          <input name="url" type="password" placeholder="Paste the secret address of a calendar" autocomplete="off" spellcheck="false" data-1p-ignore data-lpignore="true" required aria-label="Secret address of a calendar">
+          <button>Add calendar</button>
+          <p class="dim" id="cal-count"></p>
+          <div id="cal-items"></div>
+        </form>
+        <div class="cal-allday" id="cal-allday" hidden></div>
+        <div class="cal-scroll" id="cal-scroll"><div class="cal-grid" id="cal-grid" role="group" aria-label="Events of the day"></div></div>
+        <p class="visually-hidden" id="cal-list"></p>
+      </div>
+    </section>
+    <section class="card keys"><div class="card-head"><h2><button id="keys-toggle" type="button" aria-expanded="true" aria-controls="keys-body">Keys</button></h2></div>
+      <div id="keys-body">
+      <dl>
+        <dt><kbd>j</kbd> <kbd>k</kbd></dt><dd>Next or previous memo</dd>
+        <dt><kbd>o</kbd></dt><dd>Open or close the selected memo</dd>
+        <dt><kbd>c</kbd></dt><dd>Collapse the open memo</dd>
+        <dt><kbd>r</kbd></dt><dd>Reply to the selected memo</dd>
+        <dt><kbd>⌘</kbd><kbd>↩</kbd></dt><dd>Send the reply</dd>
+        <dt><kbd>esc</kbd></dt><dd>Leave the field you type in</dd>
+        <dt><kbd>1</kbd> to <kbd>9</kbd></dt><dd>Go to a tab, counted from the left: 1 is All</dd>
+        <dt><kbd>w</kbd></dt><dd>Work memos, or all memos</dd>
+        <dt><kbd>a</kbd></dt><dd>Answered memos, or back to the Inbox</dd>
+        <dt><kbd>/</kbd></dt><dd>Capture a new task. Return sends, Shift adds a line.</dd>
+        <dt><kbd>+</kbd> <kbd>-</kbd></dt><dd>Raise or lower the impact</dd>
+      </dl>
+      <details class="legend" id="legend">
+        <summary>Legend</summary>
+        <h3>Buttons</h3>
+        <dl>
+          <dt>Reply</dt><dd>Your answer. The memo leaves your Inbox and the agent acts on it.</dd>
+          <dt>Note</dt><dd>A question or instruction for the agent. The memo stays open in your Inbox.</dd>
+          <dt>Close</dt><dd>Done, no answer needed. Text in the reply field goes with it.</dd>
+          <dt>Shorten</dt><dd>Ask the agent for a short version with check boxes and the next step.</dd>
+          <dt>Postpone</dt><dd>Hide the memo until a date. It comes back at 9:00 AM.</dd>
+          <dt>+ tag</dt><dd>Add a tag, to filter memos later.</dd>
+          <dt>Less, More</dt><dd>Lower or raise the impact by 1.</dd>
+        </dl>
+        <h3>The pet in a row</h3>
+        <dl>
+          <dt>Who</dt><dd>The pet of the agent that sent the memo. Bigger means more impact.</dd>
+          <dt>Mood</dt><dd>Upset: overdue. Tired: put off. Overloaded: half a day or more. Happy: a quick big win. Working: not seen yet. Sleeping: low impact, or answered. Waiting: the rest.</dd>
+          <dt>Dot</dt><dd>A dot before the name: new. A ring: updated since you saw it.</dd>
+        </dl>
+        <h3>Impact: how much it matters</h3>
+        <dl>
+          <dt>High</dt><dd>4 or 5. A deadline, money, health, legal or data risk, or work that stops until you act.</dd>
+          <dt>Medium</dt><dd>3. Moves an active project. No harm if it waits a week.</dd>
+          <dt>Low</dt><dd>1 or 2. A preference or information.</dd>
+        </dl>
+        <h3>Effort: your time</h3>
+        <dl>
+          <dt>micro</dt><dd>Under 2 minutes, one line.</dd>
+          <dt>short</dt><dd>2 to 15 minutes.</dd>
+          <dt>hour</dt><dd>15 to 60 minutes.</dd>
+          <dt>half-day</dt><dd>1 to 4 hours.</dd>
+          <dt>day</dt><dd>More than 4 hours.</dd>
+        </dl>
+      </details>
+      </div>
+    </section>
+  </aside>
+</div>
+</div>
+</div>
+<!-- The paperclip icon for attachments and file links. ui/markdown.js copies it (paperclip()). -->
+<template id="paperclip"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></template>
+<script type="module">
+import { api, el, button, tokenForm, note, age, loadImages, themeVars, attach, avatar, ownerAvatar, hue } from '/ui/common.js';
+import { render as markdown, summary } from '/ui/markdown.js';
+import { enterSends, fieldHeight } from '/ui/keys.js';
+import { withFeedback } from '/ui/feedback.js';
+import { FIRST_HOUR, layout, hourRange, eventLabel, eventDetails, timeRange, hourLabel, dayLabel, zoneLabel, minuteOf } from '/ui/calendar.js';
+import { shownMemos, step, countText, filterChoices, tabTitle, tagSuggestions, todayIn, addDays, nextMonday, dueWarning, COMPACT_NOTE, compactAsked, shownNotes, isUgh, ughTitle, UGH_WORDS } from '/ui/filter.js';
+import { DRAFTS_KEY, SAVE_AFTER_MS, SAVE_AFTER_LEDGER_MS, DRAFT_POLL_MS, DRAFT_POLL_LEDGER_MS, TYPING_MS, parseDrafts, mergeDrafts, pruneDrafts, draftText, nextStamp, caretAfter } from '/ui/drafts.js';
+import { stateWord, pickAgent, fableShortNote, pickWords, helperMemoId, statusLine, helperGroups, finishedWords } from '/ui/agentstate.js';
+// The names the pages show for the agents (memo 1408).
+import { displayName } from '/ui/agentstate.js';
+import { usageView, startCountdowns } from '/ui/usage.js';
+import { blockedView } from '/ui/blocked.js';
+import { recentMarks, MARK_WORDS } from '/ui/recent.js';
+import { petView, rowPet } from '/ui/petview.js';
+
+const queue = document.getElementById('queue');
+const capture = document.getElementById('capture');
+let memos = [];
+let fired = {}; // memo id -> the time of her latest action tied to the memo (memo 1236), from the server
+let marks = new Map(); // memo id -> 'latest' or 'recent', for the memos of the view (ui/recent.js)
+let ticks = []; // the small actions of now, each with `before`: the id of the memo below it
+let agents = []; // the agents, for the strip under the greeting
+let selected = null;
+let postponedCount = 0;
+let zone = 'America/New_York'; // the owner's time zone, from the server: a postponed memo comes back at 9:00 AM there
+const DUE_SOON_DAYS = 2; // the same limit as src/rank.js: such a memo goes above all others
+
+document.getElementById('owner-avatar').replaceWith(ownerAvatar('__OWNER__'));
+// Day and night by the sun, with the Theme button in the side bar (memo 1407, ui/theme.js). A server from before that
+// file does not give it: then the page keeps the theme of the device.
+import('/ui/theme.js').then((m) => m.startTheme()).catch(() => {});
+
+// The drafts: the text of the reply field of each memo that is not sent (ui/drafts.js). The text stays when the memo
+// collapses, when another memo opens, and when the page changes or loads again: it is in memory, in localStorage,
+// and on the server, which gives it to each device. The page sends a change after a short pause in the typing, and
+// at once when the memo collapses or the page goes away. The newer time wins, on the page as on the server, so a copy
+// from the other device never undoes what she typed here later. A sent reply, note, or close clears the draft.
+// The page asks for the drafts each few seconds while a memo is open (pollDrafts), also while she types: a newer text
+// from the other device goes into the open reply field when she has not typed in it for a few seconds.
+let drafts = {};
+try { drafts = parseDrafts(localStorage.getItem(DRAFTS_KEY)); } catch { /* a private window: the drafts stay in memory */ }
+const unsaved = new Set(); // ids with a change that the server does not have yet
+const saveTimers = new Map(); // id -> the timer of its next save
+const typedAt = new Map(); // id -> the time of the last keystroke in its reply field
+const SAVE_AFTER = globalThis.MEMO_LEDGER ? SAVE_AFTER_LEDGER_MS : SAVE_AFTER_MS;
+const DRAFT_POLL = globalThis.MEMO_LEDGER ? DRAFT_POLL_LEDGER_MS : DRAFT_POLL_MS;
+// True for a memo she types in now: a keystroke in the last seconds, or a save that waits for the pause. Its reply
+// field keeps its text whatever the server has.
+const busy = (id) => Date.now() - (typedAt.get(id) || 0) < TYPING_MS || saveTimers.has(id);
+function keepDrafts() { try { localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts)); } catch { /* a private window */ } }
+// The small line under the reply field: Saving…, Draft saved, or Draft kept on this device (the server did not answer).
+function draftHint(id, text) {
+  const node = nodeOf(id)?.querySelector('.draft-hint');
+  if (node) { node.textContent = text; node.hidden = !text; }
+}
+// The ids are text here, as the keys of the drafts object: "12", or "t-..." for a memo from the cloud agent.
+function setDraft(memoId, text) {
+  const id = String(memoId);
+  // The time of the change is after that of the draft it replaces, also when that draft came from a device with a
+  // clock ahead of this one: what she types now wins (ui/drafts.js nextStamp).
+  drafts[id] = { text, updated: nextStamp(drafts[id]) };
+  keepDrafts();
+  typedAt.set(id, Date.now());
+  unsaved.add(id);
+  draftHint(id, '');
+  clearTimeout(saveTimers.get(id));
+  saveTimers.set(id, setTimeout(() => saveDraft(id), SAVE_AFTER));
+}
+// Sends the draft of a memo to the server now. keepalive: also when the page goes away.
+async function saveDraft(memoId, keepalive = false) {
+  const id = String(memoId);
+  clearTimeout(saveTimers.get(id));
+  saveTimers.delete(id);
+  const d = drafts[id];
+  if (!d || !unsaved.has(id)) return;
+  draftHint(id, 'Saving…');
+  try {
+    const saved = await api('/api/draft', { id: Number(id) || id, text: d.text, updated: d.updated }, { keepalive });
+    // No newer change here in the meantime: the server has this text.
+    if (drafts[id]?.updated === d.updated) unsaved.delete(id);
+    // The answer is about this memo alone: the other drafts are not in it, so they must not count as missing there.
+    takeDrafts({ [id]: { text: saved.text, updated: saved.updated } }, [id]);
+    draftHint(id, unsaved.has(id) ? '' : d.text ? 'Draft saved' : '');
+  } catch (error) {
+    // The server refused the draft (the memo is answered or closed on a different device): no second try. The
+    // GitHub copy sees no such answer: the Mac applies the draft later and logs a refusal there.
+    if (!(error instanceof TypeError) && !globalThis.MEMO_LEDGER) { rejected.add(id); unsaved.delete(id); return draftHint(id, ''); }
+    draftHint(id, 'Draft kept on this device');
+  }
+}
+// A sent reply, note, or close: the text is gone, and the mark of the time keeps an older copy from the server away.
+function clearDraft(memoId) {
+  const id = String(memoId);
+  clearTimeout(saveTimers.get(id));
+  saveTimers.delete(id);
+  unsaved.delete(id);
+  typedAt.delete(id);
+  drafts[id] = { text: '', updated: nextStamp(drafts[id]) };
+  keepDrafts();
+}
+// The drafts from the server (with each load of the queue, each drafts poll, or the answer to a save): the newer one
+// wins for each memo. A newer text goes into the open reply field, also when she has the focus in it, unless she
+// typed in it in the last seconds (busy): then the whole draft waits for the next poll, so no keystroke is lost. A
+// local text that the server does not have goes to the server.
+let settingDraft = false; // true while the page itself puts a text into a reply field: that is not typing
+const rejected = new Set(); // ids whose draft the server refused (the memo is answered): no second try
+// only: the ids that remote speaks for (the answer to one save); the others stay as they are. Without it, remote is
+// all the drafts of the server.
+function takeDrafts(remote, only = null) {
+  const scope = only && new Set(only.map(String));
+  const { merged, send, changed } = mergeDrafts(drafts, remote, (id) => busy(id) || (scope !== null && !scope.has(id)));
+  drafts = pruneDrafts(merged, memos.map((m) => m.id), remote);
+  keepDrafts();
+  for (const id of changed) {
+    unsaved.delete(id);
+    const area = nodeOf(id)?.querySelector('textarea');
+    if (area && area.value !== draftText(drafts, id)) {
+      const caret = area === document.activeElement ? caretAfter(area.value, draftText(drafts, id), area.selectionStart) : null;
+      settingDraft = true;
+      area.value = draftText(drafts, id);
+      if (caret !== null) area.setSelectionRange(caret, caret);
+      area.dispatchEvent(new Event('input', { bubbles: true }));
+      settingDraft = false;
+      draftHint(id, 'Draft saved');
+    }
+  }
+  // Only the drafts of memos in the Inbox go back to the server. The draft of a memo that is answered or closed stays
+  // on this device until pruneDrafts drops it: the server refuses it, and on the GitHub copy each try is a commit
+  // (memo 492: two old drafts went back and forth every second and the replies got status 409).
+  const open = new Set(memos.map((m) => String(m.id)));
+  for (const id of send) if (open.has(id) && !saveTimers.has(id) && !rejected.has(id)) { unsaved.add(id); saveDraft(id); }
+}
+// The drafts alone, for the poll while a memo is open: the list stays as it is, so the reply field she types in stays.
+async function pollDrafts() {
+  try {
+    const data = await api('/api/queue');
+    if (data.drafts && typeof data.drafts === 'object') takeDrafts(data.drafts);
+  } catch { /* the next poll asks again; load() shows the error */ }
+}
+// The page goes away or to the background: each unsaved draft goes to the server now.
+const flushDrafts = (keepalive) => { for (const id of [...unsaved]) if (saveTimers.has(id)) saveDraft(id, keepalive); };
+addEventListener('pagehide', () => flushDrafts(true));
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushDrafts(true); });
+
+function select(id) {
+  selected = id;
+  for (const node of queue.children) node.classList.toggle('selected', Number(node.dataset.id) === id);
+}
+
+// The thread of a memo: the memos it came from and the memos that came from it (GET /api/thread, src/memos.js
+// thread), in the order of their ids. The open memo has Back and Forward buttons that step through the thread; a
+// memo of the thread shows in the form of the Answered view (its text, its notes, its reply) in the place of the
+// text of the open memo, with the reply field of the open memo still below it. threads: memo id -> the thread;
+// shownOf: memo id -> the id of the memo of the thread that shows, when it is not the memo itself.
+const threads = new Map();
+const shownOf = new Map();
+async function loadThread(id) {
+  try {
+    const t = await api(`/api/thread?id=${id}`);
+    if (!t || !Array.isArray(t.memos)) return;
+    const same = JSON.stringify(threads.get(id)) === JSON.stringify(t);
+    threads.set(id, t);
+    if (!same) renderThread(id);
+  } catch (error) {
+    // The memo shows with no thread, and says so in its place (a server from before the thread route gives 404 here).
+    // The next load of the list asks again.
+    threads.delete(id);
+    const old = nodeOf(id)?.querySelector('.thread');
+    if (old) old.replaceWith(el('div', { className: 'thread' }, el('p', { className: 'dim' }, `The thread of this memo did not load: ${error.message}`)));
+  }
+}
+// Draws the thread part of the open memo again, and hides the text of the memo while a memo of the thread shows.
+function renderThread(id) {
+  const node = nodeOf(id);
+  const old = node?.querySelector('.thread');
+  if (!old) return;
+  old.replaceWith(threadView(id));
+  const own = node.querySelector('.own');
+  if (own) own.hidden = shownOf.has(id);
+}
+// A memo of a thread, as the Answered view shows a memo: who, when, the text, the notes, and the reply or the result.
+function transcriptView(m) {
+  const toOwner = m.recipient === '__OWNER__';
+  const label = m.state === 'replied' ? (toOwner ? 'Your reply' : `Reply of ${displayName(m.recipient)}`) : m.state === 'closed' ? 'Closed' : (toOwner ? 'No reply yet' : `${displayName(m.recipient)} did not answer yet`);
+  const notes = m.notes || [];
+  return el('div', { className: 'transcript' },
+    el('div', { className: 'memo-head' }, avatar(displayName(m.sender)), wsChip(m),
+      el('div', { className: 'meta' }, el('span', { className: 'sender' }, displayName(m.sender)), ` → ${displayName(m.recipient)}${m.impact ? ` · impact ${m.impact} · ${m.effort}` : ''} · ${whenText(m.created)}`),
+      m.state === 'open' ? el('span', { className: 'tag' }, 'open') : statusChip(m)),
+    m.title ? el('div', { className: 'name' }, el('b', {}, m.title)) : '',
+    el('div', { className: 'md' }, ...markdown(m.text, el, { html: !['liaison', 'discord'].includes(m.sender), vars: themeVars() })),
+    notes.length ? el('div', { className: 'notes' }, ...notes.map((n) => el('div', { className: 'note' },
+      el('div', { className: 'who' }, el('b', {}, displayName(n.author)), ` · ${age(n.created)}`),
+      el('div', { className: 'md' }, ...markdown(n.text, el))))) : '',
+    m.state === 'open' ? el('p', { className: 'dim' }, label)
+      : el('div', { className: 'answer' },
+        el('div', { className: 'who' }, el('b', {}, label), ` · ${whenText(m.closed)}`),
+        m.reply ? el('div', { className: 'md' }, ...markdown(m.reply, el)) : el('p', { className: 'dim' }, 'No text.')));
+}
+// The Back and Forward buttons of the open memo, with the memo of the thread that shows. Nothing when the memo has
+// no thread (a memo that names no memo and that no memo names).
+function threadView(id) {
+  const t = threads.get(id);
+  const box = el('div', { className: 'thread' });
+  if (!t || t.memos.length < 2) return box;
+  const ids = t.memos.map((m) => m.id);
+  const own = ids.indexOf(id);
+  let at = ids.indexOf(shownOf.get(id) ?? id);
+  if (at < 0) at = own;
+  const go = (d) => { if (ids[at + d] === id) shownOf.delete(id); else shownOf.set(id, ids[at + d]); renderThread(id); };
+  const back = button('‹ Back', () => go(-1), 'The memo before this one in the thread');
+  const forward = button('Forward ›', () => go(1), 'The memo after this one in the thread');
+  back.disabled = at <= 0;
+  forward.disabled = at >= ids.length - 1;
+  const shown = t.memos[at];
+  const where = el('span', { className: 'dim' }, at === own ? `This memo · ${at + 1} of ${ids.length} in its thread` : `Memo ${shown.id} · ${at + 1} of ${ids.length}`);
+  const nav = el('div', { className: 'thread-nav row' }, back, forward, where);
+  nav.setAttribute('role', 'navigation');
+  nav.setAttribute('aria-label', `Thread of memo ${id}`);
+  if (at !== own) nav.append(el('span', { className: 'spacer' }), button('This memo', () => { shownOf.delete(id); renderThread(id); }, 'Back to the open memo'));
+  box.append(nav);
+  if (at !== own) box.append(transcriptView(shown));
+  return box;
+}
+
+// Each memo is one row with its name and the next step of the owner. The sender writes the brief (memo send
+// --title --next, or memo brief). A memo with no brief shows the first line of its text. A click opens the full
+// memo at its place, and one memo is open at a time: to open a memo collapses the open one. The page keeps no
+// choice on the device, so the memos are collapsed at each load, on a phone as on a computer. (Before 2026-10-28
+// the page kept a full view in localStorage under "memo-compact"; an old value is removed and has no effect.)
+let openId = null; // the id of the open memo, or null when all memos are collapsed
+try { localStorage.removeItem('memo-compact'); } catch { /* a private window */ }
+// Draws the memo again at its place: open, or as its brief. Gives the new node, or null when the memo is not on the screen.
+function redraw(id) {
+  const memo = memos.find((m) => m.id === id);
+  const old = nodeOf(id);
+  if (!memo || !old) return null;
+  const node = view(memo);
+  // A seen timer of the old node stops: after a collapse, only the brief is on the screen.
+  watch.unobserve(old);
+  clearTimeout(waiting.get(id));
+  waiting.delete(id);
+  old.replaceWith(node);
+  loadImages(node);
+  return node;
+}
+function toggleOpen(id) {
+  const was = openId;
+  openId = openId === id ? null : id;
+  if (openId === id) loadThread(id); else shownOf.delete(id);
+  // The memo that collapses: its draft goes to the server now, so it is on the other device before long.
+  if (was !== null && saveTimers.has(String(was))) saveDraft(was);
+  if (was !== null && was !== id) redraw(was);
+  const node = redraw(id);
+  if (!node) return;
+  select(id);
+  node.scrollIntoView({ behavior: 'instant', block: 'nearest' });
+}
+// Opens a memo (the link of the Agents page, /inbox#memo-<id>) and goes to it.
+function openMemo(id) {
+  if (openId !== id) toggleOpen(id);
+  goTo(id);
+}
+const factsOf = (memo) => ` impact ${memo.impact} · ${memo.effort}${memo.due ? ` · due ${memo.due}` : ''} · ${age(memo.created)}`;
+// In a row, a small dot before the name says the same: a full dot for a new memo, a ring for an updated one.
+function unseenDot(memo) {
+  if (memo.seen === 1) return '';
+  const words = memo.seen === 2 ? 'Updated since you saw it' : 'New';
+  return el('span', { className: memo.seen === 2 ? 'unseen updated' : 'unseen', title: words }, el('span', { className: 'visually-hidden' }, `${words}: `));
+}
+const newTag = (memo) => (memo.seen === 1 ? '' : el('span', { className: 'tag' }, memo.seen === 2 ? 'updated' : 'new'));
+// The mark of a memo tied to what she fired off last (memo 1236): 'latest' (green) or 'recent' (gold), or ''.
+const markOf = (memo) => marks.get(memo.id) || '';
+// The small word next to the mark, "Latest" or "Recent", with the time of her action: a screen reader hears the words,
+// not the color.
+function markChip(memo) {
+  const kind = markOf(memo);
+  if (!kind) return '';
+  const words = MARK_WORDS[kind];
+  return el('span', { className: `recent-tag ${kind}`, title: `${words.title}, ${age(fired[memo.id])}` }, words.label);
+}
+// The Ugh chip (memo 1244): a memo that waited more than 5 days, or that she postponed and that came back. A word,
+// so a screen reader hears it; the tooltip says which of the two.
+const ughChip = (memo) => (isUgh(memo) ? el('span', { className: 'ugh-tag', title: ughTitle(memo) }, UGH_WORDS.label) : '');
+// The workstream code of a memo (OPS-14) as a small tag, before its name in a row and at the top of the open memo.
+// Nothing for a memo with no code: it shows its number, as before the codes.
+const wsChip = (memo) => (memo.code ? el('span', { className: 'ws', title: `Memo ${memo.id}` }, memo.code) : '');
+
+// The impact as a level: 4 and 5 are high, 3 is medium, 1 and 2 are low.
+const level = (impact) => (impact >= 4 ? 'hi' : impact === 3 ? 'mid' : 'lo');
+const LEVEL_WORD = { hi: 'High', mid: 'Medium', lo: 'Low' };
+const levelChip = (memo) => el('span', { className: `lvl ${level(memo.impact)}`, title: `Impact ${memo.impact} of 5` }, LEVEL_WORD[level(memo.impact)], el('small', {}, ` ${memo.impact}`));
+// The impact cell of a row: the pet of the sending agent, sized by the impact and bothered by the effort, in the mood
+// of the memo (ui/pets.js rowFeeling; ui/petview.js rowPet), with a label that says the numbers; the plain numbers for a memo from the owner, or one with no impact.
+const artOf = (name) => agents.find((a) => a.name === name)?.art ?? null;
+function impactCell(memo) {
+  const pet = memo.sender === '__OWNER__' ? null : rowPet(memo, el, { art: artOf(memo.sender), today: todayIn(zone) });
+  return pet ? [pet] : [levelChip(memo), el('span', { className: 'effort' }, memo.effort)];
+}
+// The due date as a short word: Overdue, Today, Tomorrow, or the date.
+function dueText(due, today) {
+  if (due < today) return 'Overdue';
+  if (due === today) return 'Today';
+  if (due === addDays(today, 1)) return 'Tomorrow';
+  return new Date(`${due}T12:00:00Z`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
+}
+function dueCell(memo, readOnly = false) {
+  if (!memo.due) return el('span', { className: 'due' }, '—');
+  // An answered memo has no due date to warn about: the date only.
+  if (readOnly) return el('span', { className: 'due', title: `Due ${memo.due}` }, new Date(`${memo.due}T12:00:00Z`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' }));
+  const today = todayIn(zone);
+  const soon = memo.due <= addDays(today, DUE_SOON_DAYS);
+  return el('span', { className: memo.due < today ? 'due late' : soon ? 'due soon' : 'due', title: `Due ${memo.due}` }, dueText(memo.due, today));
+}
+function tagChip(name) {
+  const chip = el('span', { className: 'tchip', title: `#${name}` }, el('span', { className: 'dot' }), name);
+  chip.style.setProperty('--h', hue(name));
+  return chip;
+}
+
+// readOnly: a row of the Answered view, with its status (Replied or Closed) and the time of the answer.
+function briefView(memo, readOnly = false) {
+  const notes = shownNotes(memo).length;
+  const isSelected = memo.id === (readOnly ? answeredSelected : selected);
+  const open = readOnly ? () => toggleAnswered(memo.id) : () => toggleOpen(memo.id);
+  const mark = readOnly ? '' : markOf(memo);
+  const node = el('article', { className: `memo brief${isSelected ? ' selected' : ''}${mark ? ` ${mark}` : ''}`, title: 'Open this memo' },
+    el('span', { className: `mark ${level(memo.impact)}` }),
+    el('div', { className: 'cell title' },
+      el('div', { className: 'name' }, readOnly ? '' : unseenDot(memo), wsChip(memo), memo.title || summary(memo.text) || `Memo ${memo.id}`),
+      memo.next ? el('div', { className: 'next' }, el('b', {}, 'Next: '), memo.next) : '',
+      readOnly ? el('div', { className: 'sub' }, statusChip(memo), ` ${whenText(memo.closed)} · ${displayName(memo.sender)}`)
+        : el('div', { className: 'sub' }, mark ? markChip(memo) : '', ughChip(memo), `${displayName(memo.sender)} · ${age(memo.created)}${notes ? ` · ${notes} ${notes === 1 ? 'note' : 'notes'}` : ''}`)),
+    el('div', { className: 'cell due' }, dueCell(memo, readOnly)),
+    // The impact and the effort as the pet of the sender (memo 1241, ui/petview.js rowPet): its size is the impact and
+    // how bothered it looks is the effort, with the real numbers in its label. A memo from the owner keeps the numbers.
+    // The pet is the sender, so the row has no circle of the sender, and no tags: the tabs and the views filter by them.
+    el('div', { className: 'cell impact' }, ...impactCell(memo)));
+  node.dataset.id = memo.id;
+  node.tabIndex = 0;
+  node.setAttribute('role', 'button');
+  node.setAttribute('aria-expanded', 'false');
+  node.addEventListener('click', open);
+  node.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); open(); } });
+  return node;
+}
+
+// The open row of the Answered view: the memo text, the notes and her reply. Read only: no buttons that change it.
+function answeredView(memo) {
+  const node = el('article', { className: memo.id === answeredSelected ? 'memo answered selected' : 'memo answered' },
+    el('div', { className: 'memo-head' }, avatar(displayName(memo.sender)), wsChip(memo), el('div', { className: 'meta' }, el('span', { className: 'sender' }, displayName(memo.sender)), factsOf(memo)), statusChip(memo)),
+    memo.title ? el('div', { className: 'name' }, el('b', {}, memo.title)) : '',
+    memo.tags.length ? el('div', { className: 'chips' }, ...memo.tags.map(tagChip)) : '',
+    el('div', { className: 'md' }, ...markdown(memo.text, el, { html: !['liaison', 'discord'].includes(memo.sender), vars: themeVars() })),
+    shownNotes(memo).length ? el('div', { className: 'notes' }, ...shownNotes(memo).map((n) => el('div', { className: 'note' },
+      el('div', { className: 'who' }, el('b', {}, displayName(n.author)), ` · ${age(n.created)}`),
+      el('div', { className: 'md' }, ...markdown(n.text, el))))) : '',
+    el('div', { className: 'answer' },
+      el('div', { className: 'who' }, el('b', {}, memo.state === 'replied' ? 'Your reply' : 'Closed'), ` · ${whenText(memo.closed)}`),
+      memo.reply ? el('div', { className: 'md' }, ...markdown(memo.reply, el)) : el('p', { className: 'dim' }, 'No text.')),
+    el('div', { className: 'row' }, el('span', { className: 'spacer' }), button('Collapse', () => toggleAnswered(memo.id), 'Show only the row of this memo')));
+  node.dataset.id = memo.id;
+  node.addEventListener('click', () => selectAnswered(memo.id));
+  return node;
+}
+
+function view(memo, readOnly = false) {
+  // An answered memo is read only: its row, or the open memo with her reply.
+  if (readOnly) return answeredOpened.has(memo.id) ? answeredView(memo) : briefView(memo, true);
+  // A memo that is not the open one is only its brief. The brief does not count as seen.
+  if (memo.id !== openId) return briefView(memo);
+  const area = el('textarea', { rows: 2, placeholder: 'Reply', value: draftText(drafts, memo.id) });
+  area.setAttribute('aria-label', `Reply to memo ${memo.id}`);
+  area.addEventListener('input', () => { if (!settingDraft) setDraft(memo.id, area.value); });
+  area.addEventListener('focus', () => select(memo.id));
+  // The field loses the focus: the draft goes to the server now.
+  area.addEventListener('blur', () => { if (saveTimers.has(String(memo.id))) saveDraft(memo.id); });
+  const hint = el('div', { className: 'draft-hint dim', hidden: !draftText(drafts, memo.id) || unsaved.has(String(memo.id)) }, 'Draft saved');
+  hint.setAttribute('role', 'status');
+  area.addEventListener('keydown', (event) => {
+    // Command-Return sends the reply, with the same signs on the Reply button as a click.
+    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.repeat) { event.preventDefault(); reply(memo, area.value, sendButtons[0]); }
+  });
+  const thumbs = el('div', { className: 'thumbs', hidden: true });
+  const sendButtons = [
+    button('Reply', (b) => reply(memo, area.value, b), 'Send the answer. The memo leaves your Inbox.'),
+    ...(['liaison', 'discord'].includes(memo.sender) ? [] : [button('Note', (b) => addNote(memo, area.value, b), 'Send the text to the agent. The memo stays open in your Inbox.')]),
+    button('Close', (b) => close(memo, b), 'Close the memo. The text in the reply field goes with it.'),
+  ];
+  const facts = factsOf(memo);
+  // seen 0: the owner did not see the memo. seen 2: its text changed after the owner saw it.
+  const tag = newTag(memo);
+  const tagPanel = tagEditor(memo);
+  const laterPanel = postponePicker(memo);
+  const toggle = (panel, other) => { other.hidden = true; panel.hidden = !panel.hidden; if (!panel.hidden) panel.querySelector('input, button')?.focus(); };
+  const mark = markOf(memo);
+  const node = el('article', { className: `memo${memo.id === selected ? ' selected' : ''}${mark ? ` ${mark}` : ''}` },
+    el('div', { className: 'memo-head' }, avatar(displayName(memo.sender)), wsChip(memo), el('div', { className: 'meta' }, el('span', { className: 'sender' }, displayName(memo.sender)), facts), markChip(memo), ughChip(memo), tag),
+    memo.title ? el('div', { className: 'name' }, el('b', {}, memo.title), memo.next ? el('span', { className: 'dim' }, ` · Next: ${memo.next}`) : '') : '',
+    el('div', { className: 'chips' },
+      ...memo.tags.map((t) => {
+        const remove = button('×', () => setTag(memo, t, false), `Remove the tag ${t}`);
+        remove.setAttribute('aria-label', `Remove the tag ${t}`);
+        const chip = el('span', { className: 'chip' }, `#${t}`, remove);
+        chip.style.setProperty('--h', hue(t));
+        return chip;
+      }),
+      button('+ tag', () => toggle(tagPanel, laterPanel), 'Add a tag to this memo'),
+      button('Postpone', () => toggle(laterPanel, tagPanel), 'Take this memo out of the Inbox until a date'),
+      ...(canCompact(memo) ? [compactButtonOf(memo)] : []),
+      button('Collapse', () => toggleOpen(memo.id), 'Show only the name and the next step of this memo')),
+    tagPanel,
+    laterPanel,
+    // The Back and Forward buttons through the thread of the memo, and the memo of the thread that shows.
+    threadView(memo.id),
+    // The text and the notes of the memo. Hidden while a memo of the thread shows.
+    el('div', { className: 'own', hidden: shownOf.has(memo.id) },
+      // A memo that quotes Discord text gets no frame.
+      el('div', { className: 'md' }, ...markdown(memo.text, el, { html: !['liaison', 'discord'].includes(memo.sender), vars: themeVars(), onCheck: (n, on, box) => check(memo.id, n, on, box) })),
+      // The notes of the memo: messages between the owner and the sender while the memo is open.
+      shownNotes(memo).length ? el('div', { className: 'notes' }, ...shownNotes(memo).map((n) => el('div', { className: 'note' },
+        el('div', { className: 'who' }, el('b', {}, displayName(n.author)), ` · ${age(n.created)}${n.author === '__OWNER__' && !n.read ? ' · not read yet' : ''}`),
+        el('div', { className: 'md' }, ...markdown(n.text, el))))) : ''),
+    // The buttons that send are off while an image goes to the server.
+    attach(area, thumbs, (busy) => { for (const b of sendButtons) b.disabled = busy; }),
+    thumbs,
+    hint,
+    el('div', { className: 'row' },
+      ...sendButtons,
+      el('span', { className: 'spacer' }),
+      button('Less', () => adjust(memo.id, -1), 'Decrease the impact by 1'),
+      button('More', () => adjust(memo.id, 1), 'Increase the impact by 1')));
+  node.dataset.id = memo.id;
+  node.addEventListener('click', () => select(memo.id));
+  if (tag) watch.observe(node);
+  return node;
+}
+
+// The Shorten button asks the sender, with a fixed note, to close the memo and send a short new memo:
+// a summary, the open items, and the next step. Only for a memo from an agent that reads notes.
+const canCompact = (memo) => !['__OWNER__', 'liaison', 'discord'].includes(memo.sender);
+function compactButtonOf(memo) {
+  if (compactAsked(memo)) {
+    const asked = button('Asked', () => {}, 'The agent has the request to compact this memo');
+    asked.disabled = true;
+    return asked;
+  }
+  return button('Shorten', (b) => send(b, () => api('/api/note', { id: memo.id, from: '__OWNER__', text: COMPACT_NOTE })),
+    'Ask the agent to close this memo and send a short new memo: a summary, the open items, and the next step');
+}
+
+// The field to add a tag, with the starter tags and the tags in use as suggestions. Return adds, Escape closes.
+function tagEditor(memo) {
+  const field = el('input', { type: 'text', placeholder: 'tag', autocomplete: 'off', maxLength: 24 });
+  field.setAttribute('aria-label', `New tag for memo ${memo.id}`);
+  field.setAttribute('list', `tags-${memo.id}`);
+  const options = el('datalist', { id: `tags-${memo.id}` }, ...tagSuggestions(memos, memo).map((t) => el('option', { value: t })));
+  const panel = el('div', { className: 'panel', hidden: true }, field, options,
+    button('Add', () => setTag(memo, field.value, true)), button('Cancel', () => { panel.hidden = true; }));
+  field.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') { event.preventDefault(); setTag(memo, field.value, true); }
+    if (event.key === 'Escape') panel.hidden = true;
+  });
+  return panel;
+}
+async function setTag(memo, name, on) {
+  const tag = name.trim().toLowerCase();
+  if (!tag) return note('Write a tag first.');
+  await run(() => api('/api/tag', { id: memo.id, tag, on, by: '__OWNER__' }));
+}
+
+// The postpone choices: tomorrow, next Monday, or a date. The memo comes back at 9:00 AM on that day.
+function postponePicker(memo) {
+  const today = todayIn(zone);
+  const warn = el('p', { className: 'warn', hidden: true });
+  const showWarning = (date) => { warn.textContent = dueWarning(memo, date); warn.hidden = !warn.textContent; };
+  const picked = el('input', { type: 'date', min: addDays(today, 1), value: addDays(today, 1) });
+  picked.setAttribute('aria-label', `Date for memo ${memo.id} to come back`);
+  picked.addEventListener('input', () => showWarning(picked.value));
+  const choice = (label, date) => {
+    const b = button(`${label} (${shortDate(date)})`, () => later(memo, date), `Back on ${date} at 9:00 AM`);
+    b.addEventListener('mouseenter', () => showWarning(date));
+    b.addEventListener('focus', () => showWarning(date));
+    return b;
+  };
+  const panel = el('div', { className: 'panel', hidden: true },
+    choice('Tomorrow', addDays(today, 1)),
+    choice('Next week', nextMonday(today)),
+    el('span', { className: 'pick' }, picked, button('Postpone', () => later(memo, picked.value), 'Back on this date at 9:00 AM')),
+    warn);
+  return panel;
+}
+const shortDate = (date) => new Date(`${date}T12:00:00Z`).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
+const later = (memo, date) => (date ? run(() => api('/api/postpone', { id: memo.id, date, by: '__OWNER__' })) : note('Pick a date first.'));
+
+// The postponed memos: a card in the side column with the count, and a list with the return time and "Bring back now".
+// The legend in the Keys card remembers if it is open, in this browser only.
+const legend = document.getElementById('legend');
+try { legend.open = localStorage.getItem('memo.legend') === 'open'; } catch {}
+legend.addEventListener('toggle', () => { try { localStorage.setItem('memo.legend', legend.open ? 'open' : 'closed'); } catch {} });
+// The Keys card opens and closes as a whole, and remembers it, in this browser only. It starts open.
+const keysToggle = document.getElementById('keys-toggle');
+const keysBody = document.getElementById('keys-body');
+function setKeys(open) {
+  keysBody.hidden = !open;
+  keysToggle.setAttribute('aria-expanded', String(open));
+}
+try { setKeys(localStorage.getItem('memo.keys') !== 'closed'); } catch {}
+keysToggle.addEventListener('click', () => {
+  setKeys(keysBody.hidden);
+  try { localStorage.setItem('memo.keys', keysBody.hidden ? 'closed' : 'open'); } catch {}
+});
+// The Today card (the calendar of the owner as a day grid) opens and closes, and remembers it, in this browser only. It starts open.
+const todayToggle = document.getElementById('today-toggle');
+const todayBody = document.getElementById('today-body');
+function setToday(open) {
+  todayBody.hidden = !open;
+  todayToggle.setAttribute('aria-expanded', String(open));
+}
+try { setToday(localStorage.getItem('memo.today') !== 'closed'); } catch {}
+todayToggle.addEventListener('click', () => {
+  setToday(todayBody.hidden);
+  try { localStorage.setItem('memo.today', todayBody.hidden ? 'closed' : 'open'); } catch {}
+  showCalSetup();
+  if (!todayBody.hidden) loadCalendar();
+});
+
+// The day grid. The times are in the time zone of this browser, so the grid follows the owner when she travels.
+const browserZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+const calEls = Object.fromEntries(['head', 'prev', 'next', 'today', 'day', 'zone', 'note', 'allday', 'scroll', 'grid', 'list'].map((k) => [k, document.getElementById(`cal-${k}`)]));
+let calDate = todayIn(browserZone);
+let calEvents = null; // the events of calDate, or null before they load
+let calShown = ''; // the date that the grid shows: a new date scrolls the grid again
+function calNowLine() {
+  calEls.grid.querySelector('.cal-now')?.remove();
+  const first = Number(calEls.grid.dataset.first);
+  const last = Number(calEls.grid.dataset.last);
+  if (calDate !== todayIn(browserZone) || Number.isNaN(first)) return;
+  const minute = minuteOf(new Date().toISOString(), calDate, browserZone);
+  if (minute < first * 60 || minute > last * 60) return;
+  const line = el('div', { className: 'cal-now' });
+  line.style.setProperty('--at', minute - first * 60);
+  calEls.grid.append(line);
+}
+function renderCalendar() {
+  calEls.day.textContent = calDate === todayIn(browserZone) ? `Today, ${dayLabel(calDate)}` : dayLabel(calDate);
+  calEls.zone.textContent = zoneLabel(browserZone);
+  if (!calEvents) return;
+  const allDay = calEvents.filter((e) => e.allDay);
+  const items = layout(calEvents, calDate, browserZone);
+  calEls.allday.hidden = !allDay.length;
+  calEls.allday.replaceChildren(...allDay.map((e) => eventButton(e, e.hasOthers ? 'cal-chip' : 'cal-chip solo', e.title)));
+  const { first, last } = hourRange(items);
+  calEls.grid.dataset.first = first;
+  calEls.grid.dataset.last = last;
+  calEls.grid.style.setProperty('--hours', last - first);
+  const hours = [];
+  for (let h = first; h < last; h++) {
+    // The hour lines are for the eyes: a screen reader reads the events, each with its time.
+    const row = el('div', { className: 'cal-hour', ariaHidden: 'true' }, el('span', {}, hourLabel(h)));
+    row.style.setProperty('--at', (h - first) * 60);
+    hours.push(row);
+  }
+  const blocks = items.map((x) => {
+    const short = x.to - x.from < 45;
+    const block = eventButton(x.event, `cal-ev${x.event.hasOthers ? '' : ' solo'}${short ? ' short' : ''}`,
+      el('b', {}, x.event.title), el('span', {}, timeRange(x.event.start, x.event.end, browserZone)));
+    block.style.setProperty('--at', x.from - first * 60);
+    block.style.setProperty('--len', x.to - x.from);
+    block.style.setProperty('--col', x.col);
+    block.style.setProperty('--cols', x.cols);
+    return block;
+  });
+  calEls.grid.replaceChildren(...hours, ...blocks);
+  calNowLine();
+  // A screen reader reads each event as a button, in order. With no event, one hidden line says so.
+  calEls.list.textContent = allDay.length || items.length ? '' : 'No events.';
+  if (calShown !== calDate && !todayBody.hidden && calEls.grid.scrollHeight) {
+    // A new day: the grid scrolls to an hour before now (today), or to the first event, or to the first hour.
+    calShown = calDate;
+    const hourPx = calEls.grid.scrollHeight / Math.max(1, last - first);
+    const isToday = calDate === todayIn(browserZone);
+    const from = isToday ? minuteOf(new Date().toISOString(), calDate, browserZone) - 60 : (items[0]?.from ?? FIRST_HOUR * 60) - 15;
+    calEls.scroll.scrollTop = Math.max(0, (from / 60 - first) * hourPx);
+  }
+}
+// An event in the grid or in the all-day strip: a button with the full text on hover (title) and for a screen reader.
+// A click, Enter or Space opens its detail.
+function eventButton(event, className, ...children) {
+  const label = eventLabel(event, browserZone);
+  const node = el('button', { type: 'button', className, title: label }, ...children);
+  node.setAttribute('aria-label', label);
+  node.addEventListener('click', () => openEvent(event, node));
+  return node;
+}
+// The detail of an event: a modal dialog with the full title, the day and time, the place, the video link, the organizer,
+// and the people with their answers (ui/calendar.js eventDetails). The browser keeps the focus in it and closes it on
+// Escape; the Close button and a click outside close it too. The focus goes back to the event in the grid.
+function openEvent(event, opener) {
+  const close = el('button', { type: 'button', className: 'cal-close', title: 'Close (Esc)' }, '×');
+  close.setAttribute('aria-label', 'Close');
+  const rows = eventDetails(event, calDate, browserZone).flatMap((row) => [el('dt', {}, row.label), el('dd', {},
+    row.items ? el('ul', {}, ...row.items.map((item) => el('li', {}, item)))
+      : row.href ? el('a', { href: row.href, target: '_blank', rel: 'noopener noreferrer' }, row.text) : row.text)]);
+  const title = el('h3', { id: 'cal-detail-title' }, event.title);
+  const dialog = el('dialog', { className: 'cal-detail' }, el('div', { className: 'cal-detail-head' }, title, close), el('dl', {}, ...rows));
+  dialog.setAttribute('aria-labelledby', 'cal-detail-title');
+  close.addEventListener('click', () => dialog.close());
+  dialog.addEventListener('click', (e) => { if (e.target === dialog) dialog.close(); });
+  // The Inbox keys (j, k, o and others) listen on the document: they must not act behind the dialog. Escape still
+  // closes it, because that is the default action of the browser, not a listener.
+  dialog.addEventListener('keydown', (e) => e.stopPropagation());
+  dialog.addEventListener('close', () => {
+    dialog.remove();
+    // The grid draws again each 5 minutes: when the button went, the first event of the day takes the focus.
+    (opener.isConnected ? opener : calEls.grid.querySelector('.cal-ev'))?.focus();
+  });
+  document.body.append(dialog);
+  dialog.showModal();
+  close.focus();
+}
+let calRequest = 0;
+async function loadCalendar() {
+  if (todayBody.hidden) return renderCalendar();
+  const asked = calDate;
+  const n = ++calRequest;
+  try {
+    const data = await api(`/api/calendar?date=${asked}&tz=${encodeURIComponent(browserZone)}`);
+    if (n !== calRequest) return;
+    const configured = data.configured !== false;
+    calEls.head.hidden = !configured;
+    calEls.scroll.hidden = !configured;
+    calEls.note.hidden = configured;
+    calConfigured = configured;
+    showCalSetup();
+    if (!configured) {
+      calEls.allday.hidden = true;
+      calEls.note.textContent = "Add your calendar's secret iCal address to Memo to show your day here.";
+      calEls.list.replaceChildren();
+      return;
+    }
+    calEvents = data.events;
+    renderCalendar();
+  } catch (error) {
+    if (n !== calRequest) return;
+    calEls.note.hidden = false;
+    calEls.note.textContent = error.message;
+  }
+}
+const calGo = (date) => { calDate = date; calEvents = null; calEls.note.hidden = true; renderCalendar(); loadCalendar(); };
+calEls.prev.addEventListener('click', () => calGo(addDays(calDate, -1)));
+calEls.next.addEventListener('click', () => calGo(addDays(calDate, 1)));
+calEls.today.addEventListener('click', () => calGo(todayIn(browserZone)));
+let calToday = todayIn(browserZone);
+// Each minute the now line moves. After midnight a grid that showed today shows the new day.
+setInterval(() => {
+  const now = todayIn(browserZone);
+  if (now !== calToday) { if (calDate === calToday) calGo(now); calToday = now; } else calNowLine();
+}, 60000);
+// The server keeps the calendar 5 minutes, so the page asks again at the same rate.
+setInterval(loadCalendar, 5 * 60000);
+// The form that adds a calendar: the owner pastes its secret address here, with no Terminal and no edit of .env.
+// It shows by itself when Memo has no calendar, and behind the Calendars button in the head of the card. The page never
+// shows an address: the server gives only the count and the place of each calendar. Its messages go in the note of the card,
+// so they are next to the field on a phone. On the GitHub Pages copy (remote) there is no form: an address must not go through GitHub.
+const calSetup = document.getElementById('cal-setup');
+const calManage = document.getElementById('cal-manage');
+const calCount = document.getElementById('cal-count');
+const calItems = document.getElementById('cal-items');
+let calConfigured = true;
+let calSetupOpen = false;
+let calRemote = false;
+function showCalSetup() {
+  calManage.hidden = calRemote || todayBody.hidden;
+  calSetup.hidden = calRemote || !(calSetupOpen || !calConfigured);
+  calManage.setAttribute('aria-expanded', String(!calSetup.hidden));
+}
+function renderCalendars(data) {
+  calRemote = data.remote === true;
+  calCount.textContent = `Memo shows ${plural(data.count, 'calendar')}.`;
+  calItems.replaceChildren(...data.items.filter((c) => c.source === 'page').map((c) => el('div', { className: 'cal-item' }, `Calendar ${c.index + 1}`,
+    button('Remove', () => calendarAction(() => api('/api/calendars/remove', { index: c.index }))))));
+  showCalSetup();
+}
+const calSay = (message) => { calEls.note.hidden = !message; calEls.note.textContent = message; };
+async function calendarAction(action) {
+  try {
+    renderCalendars(await action());
+    calSay('');
+    calEvents = null;
+    loadCalendar();
+  } catch (error) { calSay(error.message); }
+}
+async function loadCalendars() {
+  try { renderCalendars(await api('/api/calendars')); } catch (error) { note(error.message); }
+}
+calSetup.addEventListener('submit', (event) => {
+  event.preventDefault();
+  const url = calSetup.elements.url.value.trim();
+  if (!url) return calSay('Paste the secret address first.');
+  calendarAction(async () => { const data = await api('/api/calendars/add', { url }); calSetup.elements.url.value = ''; return data; });
+});
+calManage.addEventListener('click', () => { calSetupOpen = !calSetupOpen; showCalSetup(); });
+// The agents use the time zone of this browser (memo tz), so the page sends it at each load.
+const sendZone = () => api('/api/client-tz', { timeZone: browserZone }).catch(() => {});
+// The postponed memos: a card under the agent strip, behind the "N postponed" count in the head of the list. It lists each
+// memo with its return time and "Bring back now". The count is the only way to it on this page; the Agents page marks
+// such a memo "(postponed)" in its lists.
+const laterBox = document.getElementById('later');
+const laterList = document.getElementById('later-list');
+let laterOpen = false;
+function togglePostponed() {
+  laterOpen = !laterOpen;
+  render();
+  if (laterOpen) { showPostponed(); laterBox.scrollIntoView({ behavior: 'instant', block: 'nearest' }); }
+}
+async function showPostponed() {
+  try {
+    const list = await api('/api/postponed');
+    laterList.replaceChildren(...list.map((m) => el('div', { className: 'later-row' },
+      el('div', { className: 'line' }, summary(m.text) || `Memo ${m.id}`),
+      el('span', { className: 'dim' }, `back ${new Date(m.until).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: zone })}`),
+      button('Bring back now', () => run(async () => { await api('/api/postpone', { id: m.id, date: null, by: '__OWNER__' }); await showPostponed(); })))));
+  } catch (error) { note(error.message); }
+}
+
+// The Answered view: the memos that the owner answered or closed in the last 7 days, the last answered first,
+// in the main column with the same rows as the queue. Read only: no reply, note, close or postpone buttons.
+// A click on Inbox or on any other view goes back to the queue. The view is not kept on the device.
+const answeredList = document.getElementById('answered-list');
+let answered = []; // from GET /api/answered
+let answeredMode = false;
+let answeredSelected = null;
+const answeredOpened = new Set(); // ids of the answered memos that the owner opened
+const whenText = (iso) => new Date(iso).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: zone });
+const STATUS_WORD = { replied: 'Replied', closed: 'Closed' };
+const statusChip = (memo) => el('span', { className: `status ${memo.state === 'replied' ? 'replied' : 'closed'}` }, STATUS_WORD[memo.state] || 'Closed');
+const answeredNode = (id) => [...answeredList.children].find((n) => Number(n.dataset.id) === id);
+function selectAnswered(id) {
+  answeredSelected = id;
+  for (const node of answeredList.children) node.classList.toggle('selected', Number(node.dataset.id) === id);
+}
+function toggleAnswered(id) {
+  if (answeredOpened.has(id)) answeredOpened.delete(id); else answeredOpened.add(id);
+  const memo = answered.find((m) => m.id === id);
+  const old = answeredNode(id);
+  if (!memo || !old) return;
+  const node = view(memo, true);
+  old.replaceWith(node);
+  loadImages(node);
+  selectAnswered(id);
+  node.scrollIntoView({ behavior: 'instant', block: 'nearest' });
+}
+function setAnswered(on) {
+  answeredMode = on;
+  if (on) scheduledMode = false;
+  render();
+  if (on) loadAnswered(true);
+}
+async function loadAnswered(force = false) {
+  try {
+    const next = await api('/api/answered');
+    if (!force && JSON.stringify(next) === JSON.stringify(answered)) return;
+    answered = next;
+    render();
+  } catch (error) { note(error.message); }
+}
+function renderAnswered() {
+  if (!answered.some((m) => m.id === answeredSelected)) answeredSelected = answered[0]?.id ?? null;
+  answeredList.replaceChildren(...answered.map((m) => view(m, true)));
+  loadImages(answeredList);
+}
+
+// The Scheduled view: the things that run on a schedule for the agents, from local/schedule.json (GET /api/schedule).
+// The agent edits the file; the page reads it again on each load. Read only, in the main column, as a table.
+const scheduledList = document.getElementById('scheduled-list');
+let schedule = { items: [] };
+let scheduleError = '';
+let scheduledMode = false;
+const otherMode = () => answeredMode || scheduledMode;
+function setScheduled(on) {
+  scheduledMode = on;
+  if (on) answeredMode = false;
+  render();
+  if (on) loadSchedule(true);
+}
+async function loadSchedule(force = false) {
+  try {
+    const next = await api('/api/schedule');
+    if (!force && !scheduleError && JSON.stringify(next) === JSON.stringify(schedule)) return;
+    schedule = { ...next, items: Array.isArray(next.items) ? next.items : [] };
+    scheduleError = '';
+    render();
+  } catch (error) {
+    if (force || error.message !== scheduleError) { scheduleError = error.message; render(); }
+    if (force) note(error.message);
+  }
+}
+function renderScheduled() {
+  const head = el('div', { className: 'sched-meta' });
+  if (scheduleError) head.append(el('p', { className: 'sched-error', role: 'alert' }, scheduleError));
+  if (schedule.updated) head.append(el('p', { className: 'dim' }, 'Updated ', el('time', { dateTime: String(schedule.updated) }, String(schedule.updated))));
+  if (schedule.note) head.append(el('p', { className: 'dim' }, String(schedule.note)));
+  const items = schedule.items;
+  if (!items.length) return scheduledList.replaceChildren(head);
+  const th = (text) => { const node = el('th', {}, text); node.scope = 'col'; return node; };
+  const td = (label, ...children) => { const node = el('td', {}, ...children); node.dataset.label = label; return node; };
+  const table = el('table', { className: 'sched' },
+    el('caption', { className: 'visually-hidden' }, 'Things that run on a schedule'),
+    el('thead', {}, el('tr', {}, th('Name'), th('When'), th('Where'), th('What'))),
+    el('tbody', {}, ...items.map((item) => {
+      const name = el('th', {}, el('b', {}, String(item.name ?? '')));
+      name.scope = 'row';
+      if (item.until) name.append(el('span', { className: 'ends' }, `Ends ${item.until}`));
+      return el('tr', {}, name, td('When', String(item.when ?? '')), td('Where', String(item.where ?? '')), td('What', String(item.what ?? '')));
+    })));
+  scheduledList.replaceChildren(head, table);
+}
+function scheduledLink() {
+  const b = el('button', { type: 'button', id: 'nav-scheduled', className: scheduledMode ? 'nav on' : 'nav', title: 'The things that run on a schedule for your agents' },
+    el('span', { className: 'ico ico-clock', ariaHidden: 'true' }), 'Scheduled',
+    schedule.items.length ? el('span', { className: 'badge soft' }, String(schedule.items.length)) : '');
+  b.setAttribute('aria-pressed', String(scheduledMode));
+  b.addEventListener('click', () => setScheduled(true));
+  return b;
+}
+
+// A check box of a memo. The server changes the text of the memo, so the state is the same on each device.
+// The list on the page gets the new text, so the next load makes no new render.
+async function check(id, n, on, box) {
+  try {
+    const saved = await api('/api/check', { id, n, on });
+    const memo = memos.find((m) => m.id === id);
+    if (memo) memo.text = saved.text;
+  } catch (error) { box.checked = !on; note(error.message); }
+}
+
+// A memo counts as seen when half of it (or half of the screen, for a long memo) was on the screen for 2 seconds
+// while the page was in front. Then its tag fades and the server records it.
+const SEEN_AFTER_MS = 2000;
+const waiting = new Map(); // memo id -> timer
+const watch = new IntersectionObserver((entries) => {
+  for (const entry of entries) {
+    const id = Number(entry.target.dataset.id);
+    const enough = entry.isIntersecting && (entry.intersectionRatio >= 0.5 || entry.intersectionRect.height >= innerHeight / 2);
+    if (!enough) { clearTimeout(waiting.get(id)); waiting.delete(id); continue; }
+    if (waiting.has(id)) continue;
+    waiting.set(id, setTimeout(() => { waiting.delete(id); if (document.visibilityState === 'visible') markSeen(id); }, SEEN_AFTER_MS));
+  }
+}, { threshold: [0, 0.25, 0.5, 0.75, 1] });
+document.addEventListener('visibilitychange', () => {
+  // A memo that was on the screen while the page was hidden gets a new check.
+  if (document.visibilityState !== 'visible') return;
+  // A brief of the compact view is not the full memo, so it does not count as seen.
+  for (const node of queue.querySelectorAll('.memo:not(.brief)')) if (node.querySelector('.tag')) { watch.unobserve(node); watch.observe(node); }
+});
+async function markSeen(id) {
+  try {
+    await api('/api/seen', { ids: [id] });
+    const memo = memos.find((m) => m.id === id);
+    if (memo) memo.seen = 1;
+    const node = [...queue.children].find((n) => Number(n.dataset.id) === id);
+    if (!node) return;
+    watch.unobserve(node);
+    const tag = node.querySelector('.tag');
+    if (tag) { tag.classList.add('gone'); setTimeout(() => tag.remove(), 1500); }
+    renderSide();
+  } catch { /* the next look tries again */ }
+}
+
+// A memo that arrives or changes while the page is open simply appears in the list with its tag ("new" or "updated");
+// nothing pops up over the page (memo 895 removed the pop-ups).
+// The id can be a number or its text; a memo from the cloud agent has a text id (t-...) until the Mac numbers it.
+const nodeOf = (id) => [...queue.children].find((n) => n.dataset.id === String(id));
+function goTo(id) {
+  // The memo can be one that the filter hides.
+  if (!nodeOf(id) && filter !== 'all' && memos.some((c) => c.id === id)) setFilter('all');
+  const node = nodeOf(id);
+  if (!node) return;
+  select(id);
+  node.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+}
+
+// A tick is one small row between the memos. It is not a memo: no tag, and no place in the count.
+// A tick that the owner did stays as a done row until the next load, so the owner can take the mark back.
+function tickView(tick) {
+  const box = el('input', { type: 'checkbox' });
+  const node = el('div', { className: 'tick' },
+    el('label', {}, box, tick.text, tick.overdue ? el('span', { className: 'late' }, 'prioritize') : ''),
+    button('less', () => run(() => api('/api/tick/adjust', { id: tick.id, delta: -1 })), 'Move this tick down, also on the next days'),
+    button('more', () => run(() => api('/api/tick/adjust', { id: tick.id, delta: 1 })), 'Move this tick up, also on the next days'),
+    button('skip today', () => run(() => api('/api/tick/skip', { id: tick.id })), 'Remove this tick for today'));
+  box.addEventListener('change', async () => {
+    try {
+      await api(box.checked ? '/api/tick/done' : '/api/tick/undo', { id: tick.id });
+      node.classList.toggle('done', box.checked);
+      if (box.checked) doneTicks.set(tick.id, tick); else doneTicks.delete(tick.id);
+      renderSide();
+    } catch (error) { box.checked = !box.checked; note(error.message); }
+  });
+  if (doneTicks.has(tick.id)) { box.checked = true; node.classList.add('done'); }
+  node.dataset.tick = tick.id;
+  return node;
+}
+const doneTicks = new Map(); // ticks that the owner did on this page, for the done rows
+
+// The filter: All, Work, Personal, or one tag. It shows as tabs on the queue and as views in the side bar.
+// With a filter, the list shows no ticks. The device keeps the choice. A device that had "Work only" on starts with Work.
+const FILTER_KEY = 'memo-filter';
+const filterMenu = document.getElementById('filter');
+const views = document.getElementById('views');
+let filter = 'all';
+try { filter = localStorage.getItem(FILTER_KEY) || (localStorage.getItem('memo-work-only') === '1' ? 'work' : 'all'); } catch { /* a private window: All */ }
+const shown = () => shownMemos(memos, filter);
+function setFilter(next) {
+  filter = next;
+  answeredMode = false;
+  scheduledMode = false;
+  try { localStorage.setItem(FILTER_KEY, next); } catch { /* a private window: the choice stays in memory */ }
+  render();
+  nodeOf(selected)?.scrollIntoView({ behavior: 'instant', block: 'nearest' });
+}
+// count: the Ugh tab shows how many memos it holds (memo 1244).
+function tab(value, label, count) {
+  const b = button(label, () => setFilter(value), tabTitle(value, label));
+  if (count) b.append(el('span', { className: 'badge soft' }, String(count)));
+  b.classList.toggle('on', value === filter);
+  b.setAttribute('aria-pressed', String(value === filter));
+  return b;
+}
+function viewLink(value, label) {
+  const count = shownMemos(memos, value).length;
+  const on = value === filter && !otherMode();
+  const b = el('button', { type: 'button', className: on ? 'nav on' : 'nav' },
+    value.startsWith('tag:') ? el('span', { className: 'dot' }) : el('span', { className: `ico ico-${value === 'all' ? 'all' : 'inbox'}`, ariaHidden: 'true' }),
+    label, count ? el('span', { className: 'badge soft' }, String(count)) : '');
+  b.setAttribute('aria-pressed', String(on));
+  if (value.startsWith('tag:')) b.style.setProperty('--h', hue(value.slice(4)));
+  b.addEventListener('click', () => setFilter(value));
+  return b;
+}
+function answeredLink() {
+  const b = el('button', { type: 'button', id: 'nav-answered', className: answeredMode ? 'nav on' : 'nav', title: 'The memos you answered or closed in the last 7 days' },
+    el('span', { className: 'ico ico-done', ariaHidden: 'true' }), 'Answered',
+    answered.length ? el('span', { className: 'badge soft' }, String(answered.length)) : '');
+  b.setAttribute('aria-pressed', String(answeredMode));
+  b.addEventListener('click', () => setAnswered(true));
+  return b;
+}
+// The Inbox link goes back to the queue with no new load of the page.
+document.querySelector('.side-nav a[href="/inbox"]').addEventListener('click', (event) => {
+  if (!otherMode()) return;
+  event.preventDefault();
+  scheduledMode = false;
+  setAnswered(false);
+});
+
+// The greeting and the date, from the hour. The banner has no counts (memo SYS-5): the head of the list has them.
+const hourIn = (timeZone) => Number(new Intl.DateTimeFormat('en-US', { hour: 'numeric', hourCycle: 'h23', timeZone }).format(new Date()));
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+function renderHero() {
+  const hour = hourIn(zone);
+  document.getElementById('greeting').textContent = hour < 5 ? 'Still up,' : hour < 12 ? 'Good morning,' : hour < 17 ? 'Good afternoon,' : 'Good evening,';
+  const date = document.getElementById('hero-date');
+  const now = new Date();
+  date.replaceChildren(el('b', {}, now.toLocaleDateString(undefined, { weekday: 'long', timeZone: zone })), now.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric', timeZone: zone }));
+}
+// One count in the head of the list: a quiet button in the same dim text, pressed while its filter is on. An
+// underline shows only on hover or focus.
+function countLink(n, label, title, onClick, on) {
+  const b = button(`${n} ${label}`, onClick, title);
+  b.className = on ? 'count on' : 'count';
+  b.setAttribute('aria-pressed', String(on));
+  return b;
+}
+// The head of the list: "12 memos · 7 unread · 3 postponed". Unread: the memos she did not open, and the memos that
+// changed since she saw them (seen 0 or 2); the button sets the Unread filter. Postponed opens the Postponed card.
+// A count of 0 is left out. The Answered and Scheduled views show their own count only.
+function renderCount(list, filtered) {
+  const count = document.getElementById('count');
+  if (answeredMode) return count.replaceChildren(`${answered.length} in the last 7 days`);
+  if (scheduledMode) return count.replaceChildren(`${schedule.items.length} ${schedule.items.length === 1 ? 'item' : 'items'}`);
+  const fresh = memos.filter((m) => m.seen !== 1).length;
+  const parts = [countText(list.length, memos.length, filtered)];
+  if (fresh) parts.push(countLink(fresh, 'unread', 'Show the memos you did not open yet, and the memos that changed since you saw them', () => setFilter('unread'), filter === 'unread'));
+  if (postponedCount) parts.push(countLink(postponedCount, 'postponed', 'Show the memos that wait for a date', togglePostponed, laterOpen));
+  count.replaceChildren(...parts.flatMap((p, i) => (i ? [' · ', p] : [p])));
+}
+
+// The agent strip: one small card per agent under the greeting, in a row. Each card has the state dot and the state
+// word (ui/agentstate.js: Idle, Working, Stopped, Offline, Stopping, or Blocked; a short agent shows its last run),
+// whose court its open memos are in (dots with a number), the usage of its Claude account (ui/usage.js: session,
+// week, Fable), and its helpers with their models, each with a state dot. The head names the model of the agent's own
+// session, "Opus 5.5", from agents.json (memo 1159); the model of a helper shows with its version, "Fable 5.1", when
+// the agent passed one to `memo helper start`. Under the head, the status line of the agent and how long ago it set
+// it, the same words as the Agents page (ui/agentstate.js statusLine): "SYS-62, review of my last 50 drafts,
+// 6 min ago" (memo 1190). It is outside the body, so a phone shows it with the card closed.
+// A working agent's card turns green (memo 978); a blocked agent's card turns red and carries the same answer buttons
+// as the Agents page (ui/blocked.js).
+// The data is GET /api/agents, as on the Agents page, loaded with each poll of the Inbox (loadAgents).
+// On a phone (up to 52rem, the one-column rule of the CSS) each card is one line, its head, until a tap opens it;
+// a blocked card starts open there, so the buttons are in reach. The media query follows a rotation of the phone.
+const phone = matchMedia('(max-width: 52rem)');
+const agentStrip = document.getElementById('agent-strip');
+const agentLive = document.getElementById('agent-live');
+const openCards = new Set(); // on a phone: the names of the cards that a tap opened
+const closedCards = new Set(); // on a phone: the names of the blocked cards that a tap closed
+const lastStates = new Map(); // agent name -> its state word at the last render, for the live region
+phone.addEventListener('change', renderAgents);
+const agentState = (a) => (a.runtime === 'codex-desktop' && !a.online ? 'No recent contact' : a.kind === 'short' ? `Last run ${age(a.updated)}` : stateWord(a));
+const stateDot = (a) => el('span', { className: stateWord(a) === 'Idle' ? 'state idle' : a.running || a.online ? 'state on' : 'state', title: agentState(a) });
+// Whose court the open memos of the agent are in: a row of dots, one per memo, with the number. Your court: the
+// memos from the agent that wait on her. The agent's court: the memos to the agent that wait on it. The memos
+// themselves are in the list below, so the card shows no status text (memo SYS-2). A screen reader hears the number
+// only: "6 in your court".
+const DOTS_MAX = 20;
+function courtRow(n, kind, label) {
+  const dots = el('span', { className: 'dots', ariaHidden: 'true' }, ...Array.from({ length: Math.min(n, DOTS_MAX) }, () => el('i')));
+  const row = el('span', { className: `court ${kind}` }, dots, el('b', {}, String(n)), ` ${label}`);
+  row.setAttribute('role', 'img');
+  row.setAttribute('aria-label', `${n} in ${label}`);
+  return row;
+}
+const courtsView = (a) => el('div', { className: 'courts' }, courtRow(a.open_from ?? 0, 'mine', 'your court'), courtRow(a.open_to ?? 0, 'theirs', `${displayName(a.name)}'s court`));
+// The status line of the agent, when it has one: its text, then how long ago it was set. A screen reader hears
+// "Now: SYS-62, review of my last 50 drafts, 6 min ago"; the words carry the meaning, not a color.
+function statusView(a) {
+  const line = statusLine(a, age);
+  if (!line) return '';
+  return el('p', { className: 'agent-status' }, el('span', { className: 'visually-hidden' }, 'Now: '), line.text, el('span', { className: 'when' }, `, ${line.when}`));
+}
+// The helpers of the agent, each with its own state dot: green while it runs, grey when it is done. The server gives
+// the done ones by the rule of the Agents page (src/agents.js: the last day, at most 5). The running ones show as
+// chips; the done ones are inside a closed <details>, "3 finished helpers" (memo 1190), which stays open through the
+// polls once she opened it.
+const openDone = new Set(); // the names of the agents whose finished helpers she opened
+// A label that names a memo of the list, "Vault sync, memo 906" or "SYS-42 vault sync" (helperMemoId), is a link that
+// opens the memo here, in the queue or in the Answered view (memo 1092). A label that names none stays text: no dead link.
+const helperName = (h) => {
+  const id = helperMemoId(h.label, [...memos, ...answered]);
+  if (id === null) return h.label;
+  const link = el('a', { href: `#memo-${id}`, title: `Open memo ${id}` }, h.label);
+  link.addEventListener('click', (event) => { event.preventDefault(); goToMemo(id); });
+  return link;
+};
+function goToMemo(id) {
+  if (memos.some((m) => m.id === id)) { if (otherMode()) { scheduledMode = false; setAnswered(false); } return openMemo(id); }
+  if (!answered.some((m) => m.id === id)) return;
+  if (!answeredMode) setAnswered(true);
+  if (answeredOpened.has(id)) { selectAnswered(id); answeredNode(id)?.scrollIntoView({ behavior: 'instant', block: 'nearest' }); } else toggleAnswered(id);
+}
+const helperChip = (h) => el('li', { className: h.running ? 'on' : 'done' },
+  el('span', { className: h.running ? 'state on' : 'state', title: h.running ? `At work since ${age(h.started)}` : `Done ${age(h.ended)}` }),
+  el('span', { className: 'visually-hidden' }, h.running ? 'at work: ' : 'done: '),
+  helperName(h), el('span', { className: 'model' }, h.model));
+const helperList = (name, list) => { const ul = el('ul', { className: 'agent-helpers' }, ...list.map(helperChip)); ul.setAttribute('aria-label', `Helpers of ${displayName(name)}`); return ul; };
+function helpersView(a) {
+  const { running, done } = helperGroups(a.helpers);
+  if (!running.length && !done.length) return '';
+  const parts = [];
+  if (running.length) parts.push(helperList(a.name, running));
+  if (done.length) {
+    const box = el('details', { className: 'helpers-done', open: openDone.has(a.name) }, el('summary', {}, finishedWords(done.length)), helperList(a.name, done));
+    box.addEventListener('toggle', () => { if (box.open) openDone.add(a.name); else openDone.delete(a.name); });
+    parts.push(box);
+  }
+  return el('div', { className: 'helpers-box' }, ...parts);
+}
+// The feeling of the pet of the agent in words (ui/pets.js feelingOf): the word, then the reason, "Tired: account at
+// 86 percent". The pet itself is decoration with the same words in its label; this line is what a phone shows.
+const feelingLine = (f) => el('p', { className: `agent-feeling ${f.key}` }, el('b', {}, f.label), `: ${f.reason}`);
+// Sends an answer to a blocked agent, then loads the agents again. Same request as the Agents page.
+async function runAgent(path, body) {
+  try { await api(path, body); } catch (error) { note(error.message); return; }
+  await loadAgents();
+}
+function agentCard(a) {
+  const onPhone = phone.matches;
+  const open = !onPhone || openCards.has(a.name) || (Boolean(a.blocked) && !closedCards.has(a.name));
+  const bodyId = `agent-body-${a.name}`;
+  // The model of the agent's own session, "Opus 5.5", from its agents.json entry through the server (memo 1159).
+  // The pet of the agent with its feeling (memo 1242, ui/petview.js): the drawing in the head, and under the status
+  // line the word of the feeling with its reason, "Tired: account at 86 percent" (feelingLine). A phone has no
+  // tooltip, so the reason is in the line, with the card closed too. The state word stays at the right of the head.
+  const pet = petView(a, el, { size: onPhone ? 1.9 : 2.3, words: false });
+  const head = el(onPhone ? 'button' : 'div', { className: 'agent-head', ...(onPhone ? { type: 'button' } : {}) },
+    pet.node, stateDot(a), el('b', { title: `Agent ${a.name}` }, displayName(a.name)), a.model ? el('span', { className: 'agent-model', title: 'The model of this agent' }, a.model) : '', el('span', { className: 'agent-state' }, agentState(a)));
+  if (onPhone) {
+    head.setAttribute('aria-expanded', String(open));
+    head.setAttribute('aria-controls', bodyId);
+    head.addEventListener('click', () => {
+      if (open) { openCards.delete(a.name); if (a.blocked) closedCards.add(a.name); } else { openCards.add(a.name); closedCards.delete(a.name); }
+      renderAgents();
+    });
+  }
+  const body = el('div', { className: 'agent-body', id: bodyId, hidden: !open }, courtsView(a), usageView(a, el), helpersView(a), a.blocked ? blockedView(a, runAgent) : '');
+  // The card is red while the agent is blocked, green while it works, plain while it is idle (memo 978).
+  const card = el('article', { className: a.blocked ? 'card agent-card blocked' : stateWord(a) === 'Working' ? 'card agent-card working' : 'card agent-card' }, head, statusView(a), feelingLine(pet.feeling), body);
+  card.setAttribute('aria-label', `${displayName(a.name)}: ${agentState(a) || 'done'}`);
+  return card;
+}
+function renderAgents() {
+  if (!agents.length) agentStrip.replaceChildren(el('p', { className: 'dim' }, 'No agents yet.'));
+  else agentStrip.replaceChildren(...agents.map(agentCard));
+  // The live region says only a change of state, never a status line or a helper: "main is now Blocked."
+  const changes = [];
+  for (const a of agents) {
+    const word = stateWord(a) || 'Done';
+    if (lastStates.has(a.name) && lastStates.get(a.name) !== word) changes.push(`${displayName(a.name)} is now ${word}.`);
+    lastStates.set(a.name, word);
+  }
+  if (changes.length) agentLive.textContent = changes.join(' ');
+  const badge = document.getElementById('nav-agents');
+  const running = agents.filter((a) => a.running || a.online).length;
+  const blocked = agents.filter((a) => a.blocked).length;
+  badge.textContent = blocked ? `${blocked} blocked` : String(running);
+  badge.classList.toggle('warn', blocked > 0);
+  badge.hidden = !running && !blocked;
+}
+function renderSide() { renderHero(); renderAgents(); }
+
+function render() {
+  const list = shown();
+  const filtered = filter !== 'all';
+  const rows = filtered ? [] : ticks;
+  if (!list.some((c) => c.id === selected)) selected = list[0]?.id ?? null;
+  watch.disconnect();
+  for (const timer of waiting.values()) clearTimeout(timer);
+  waiting.clear();
+  // A reply field with the focus keeps it through the new list, with the cursor at its place; its text is in the draft.
+  const active = document.activeElement;
+  const keep = active?.tagName === 'TEXTAREA' && active.closest('.memo') ? { id: active.closest('.memo').dataset.id, start: active.selectionStart, end: active.selectionEnd } : null;
+  // The marks follow the view: green plus gold cover about 12% of the memos on the screen (memo 1236).
+  marks = recentMarks(list, fired);
+  queue.replaceChildren(...list.map((m) => view(m)));
+  for (const tick of rows) queue.insertBefore(tickView(tick), tick.before === null ? null : nodeOf(tick.before) || null);
+  if (keep) {
+    const area = nodeOf(keep.id)?.querySelector('textarea');
+    if (area) { area.focus({ preventScroll: true }); area.setSelectionRange(keep.start, keep.end); }
+  }
+  loadImages(queue);
+  const choices = filterChoices(memos, filter);
+  filterMenu.replaceChildren(...choices.map(([value, label, count]) => tab(value, label, count)));
+  views.replaceChildren(...choices.map(([value, label]) => viewLink(value, label)), answeredLink(), scheduledLink());
+  const inboxLink = document.querySelector('.side-nav a[href="/inbox"]');
+  inboxLink.classList.toggle('on', !otherMode());
+  if (otherMode()) inboxLink.removeAttribute('aria-current'); else inboxLink.setAttribute('aria-current', 'page');
+  queue.hidden = otherMode();
+  answeredList.hidden = !answeredMode;
+  scheduledList.hidden = !scheduledMode;
+  filterMenu.hidden = otherMode();
+  document.getElementById('queue-title').textContent = answeredMode ? 'Answered' : scheduledMode ? 'Scheduled' : 'Memos';
+  if (answeredMode) renderAnswered(); else answeredList.replaceChildren();
+  if (scheduledMode) renderScheduled(); else scheduledList.replaceChildren();
+  document.getElementById('thead').hidden = answeredMode ? !answered.length : scheduledMode || !list.length;
+  renderCount(list, filtered);
+  const navCount = document.getElementById('nav-count');
+  navCount.textContent = String(memos.length);
+  navCount.hidden = !memos.length;
+  const empty = document.getElementById('empty');
+  empty.textContent = scheduledMode ? 'Nothing runs on a schedule.' : answeredMode ? 'No memo was answered in the last 7 days.' : filtered ? 'No memos with this filter need you now.' : 'No memos need you now.';
+  empty.hidden = scheduledMode ? schedule.items.length > 0 || Boolean(scheduleError) : answeredMode ? answered.length > 0 : list.length > 0 || rows.length > 0;
+  // The postponed card shows while its count in the counts line is pressed and a memo waits for a date.
+  if (!postponedCount) laterOpen = false;
+  laterBox.hidden = !laterOpen;
+  renderSide();
+}
+
+// The time of the start of the server, from the first answer of the queue. A different time later: the server started
+// again, and this page can be older than it (the pages come from disk at each request, the routes come with a start).
+// The page loads itself again; load runs only while she does not type in the list, and the drafts go out first (pagehide).
+// Not on the GitHub copy: its page does not come from the server.
+let serverStart = null;
+let drawnTheme = document.documentElement.getAttribute('data-theme'); // the theme of the last render of the list
+async function load() {
+  try {
+    const data = await api('/api/queue');
+    if (!globalThis.MEMO_LEDGER) {
+      // A server from before this field gives none: that counts as a time too, so the page loads again after its restart.
+      const started = data.started || '';
+      if (serverStart !== null && serverStart !== started) return location.reload();
+      serverStart = started;
+    }
+    note('');
+    const next = data.memos;
+    // A done row stays at its place while the server does not give the tick again.
+    for (const t of data.ticks) doneTicks.delete(t.id);
+    const nextTicks = [...data.ticks, ...[...doneTicks.values()]];
+    // A new render makes each frame again and runs its script again, so render only when the list changed.
+    const nextFired = data.fired && typeof data.fired === 'object' ? data.fired : {};
+    // A change of the theme (day or night, ui/theme.js) also renders: the frames of html blocks hold the colors of
+    // the theme they were made in.
+    const theme = document.documentElement.getAttribute('data-theme');
+    const changed = JSON.stringify([next, nextTicks, data.postponed, nextFired]) !== JSON.stringify([memos, ticks, postponedCount, fired]) || !queue.children.length || theme !== drawnTheme;
+    drawnTheme = theme;
+    memos = next;
+    ticks = nextTicks;
+    fired = nextFired;
+    postponedCount = data.postponed || 0;
+    if (data.timeZone) zone = data.timeZone;
+    if (laterOpen && postponedCount) showPostponed();
+    // The helper chips of the agent strip link to the memos of the list, so they follow it (memo 1092).
+    if (changed) { render(); if (agents.length) renderAgents(); } else renderHero();
+    // The thread of the open memo, so a new memo that names it shows in its Forward button.
+    if (openId !== null && memos.some((m) => m.id === openId)) loadThread(openId);
+    // The drafts of the server, after the list, so a newer text goes into the open reply field.
+    if (data.drafts && typeof data.drafts === 'object') takeDrafts(data.drafts);
+    // A link to one memo (/inbox#memo-<id>, from the Agents page): the memo opens at the first load that has it.
+    if (wantedId !== null && memos.some((m) => m.id === wantedId)) { openMemo(wantedId); wantedId = null; }
+    loadAnswered();
+    loadSchedule();
+  } catch (error) { note(error.message); }
+}
+// The memo that the address names, #memo-<id>. The address loses it, so a reload does not open it again.
+let wantedId = null;
+function readHash() {
+  const m = /^#memo-(\d+)$/.exec(location.hash || '');
+  if (!m) return;
+  wantedId = Number(m[1]);
+  history.replaceState(null, '', location.pathname + location.search);
+  if (memos.some((x) => x.id === wantedId)) { openMemo(wantedId); wantedId = null; }
+}
+addEventListener('hashchange', readHash);
+readHash();
+
+async function run(action) {
+  try { await action(); await load(); } catch (error) { note(error.message); }
+}
+// Sends with a sign on the button: a spinner while the request is out, then a check mark, then the new list.
+// A failure shows the error and keeps the text and the images in the field.
+async function send(buttonNode, action) {
+  // The other buttons of the same memo are off for that time: a Close during a Reply must not send a second request.
+  const others = [...(buttonNode?.parentNode?.querySelectorAll('button') || [])].filter((b) => b !== buttonNode && !b.disabled);
+  for (const b of others) b.disabled = true;
+  try {
+    if (await withFeedback(buttonNode, async () => { await action(); note(''); })) await load();
+  } catch (error) {
+    // The browser gives a TypeError when the request did not get to the server.
+    note(error instanceof TypeError ? 'Not sent: the server did not answer. Your text is still in the field. Try again.' : error.message);
+  } finally { for (const b of others) b.disabled = false; }
+}
+const reply = (memo, text, buttonNode) => {
+  if (!text.trim()) return note('Write a reply first.');
+  return send(buttonNode, async () => { await api('/api/reply', { id: memo.id, text, by: '__OWNER__' }); clearDraft(memo.id); });
+};
+const addNote = (memo, text, buttonNode) => {
+  if (!text.trim()) return note('Write a note first.');
+  return send(buttonNode, async () => { await api('/api/note', { id: memo.id, from: '__OWNER__', text }); clearDraft(memo.id); });
+};
+const close = (memo, buttonNode) => send(buttonNode, async () => { await api('/api/close', { id: memo.id, text: draftText(drafts, memo.id) || undefined, by: '__OWNER__' }); clearDraft(memo.id); });
+const adjust = (id, delta) => run(() => api('/api/adjust', { id, delta, by: '__OWNER__' }));
+
+// The line under the capture field says the automatic pick and the rule that decided it, "Auto: second · more Fable
+// room", on every screen size: the title of the select is a tooltip, and a phone has none (memo 1090). After a pick
+// by hand it says so, and that the next task is automatic again. Nothing before the agents load, nothing with no pick.
+// A change of the select is a pick by hand, so the line says so at once; the handler below marks the pick.
+const pickLine = document.getElementById('pick');
+function showPick(byHand = handPicked) {
+  const to = capture.elements.to.value;
+  const words = !agents.length ? '' : byHand && to ? `Your pick: ${displayName(to)} · automatic again after this task` : pickWords(agents, { task: capture.elements.text.value });
+  pickLine.textContent = words;
+  pickLine.hidden = !words;
+}
+capture.elements.to.addEventListener('change', () => showPick(true));
+capture.elements.text.addEventListener('input', () => showPick());
+
+// The line under the capture field that follows a memo from Send to its agent (memo 1407, ui/sendstage.js): three
+// dots, Saved, Waiting, Picked up, and in words what the server reports now, for example "Waiting for main to ask for
+// news: it asks each 30 seconds, next in about 12 seconds". The dot of the stage in progress pulses (not with reduced
+// motion). While a memo is tracked the agents load each 3 seconds, so the card of the agent turns green soon after it
+// has the memo. A server from before the file does not give it: then there is no line. The GitHub copy has none: its
+// memo reaches the Mac later.
+let stage = null;
+let tracks = []; // the memos she sent that their agents do not have yet: { id, to, at, nudged }
+let agentsAt = 0; // the time the last answer of /api/agents was asked for
+const trackDone = new Map(); // memo id -> the time its last stage came into view
+const trackBox = document.getElementById('sent-track');
+import('/ui/sendstage.js').then((m) => { stage = m; }).catch(() => {});
+function renderTracks() {
+  if (!stage) return;
+  const fresh = (t) => agentsAt >= t.at;
+  tracks = stage.keepTracks(tracks, agents, trackDone, { fresh });
+  // A row stays in the page while its stage is the same and only its words change, so the pulse of its dot runs on.
+  const rows = new Map([...trackBox.children].map((row) => [row.dataset.sig, row]));
+  const next = tracks.map((t) => {
+    const s = stage.stageOf(t, agents, { fresh: fresh(t) });
+    const sig = `${t.id}:${s.key}:${s.step}`;
+    const old = rows.get(sig);
+    if (old) { old.querySelector('.words').textContent = s.words; return old; }
+    const dots = el('span', { className: 'steps', ariaHidden: 'true' }, ...stage.STEPS.map((label, i) => el('i', { className: i < s.step || s.done ? 'done' : i === s.step ? 'now' : '', title: label })));
+    const row = el('div', { className: `sent-row ${s.key}`, title: stage.EXPLAIN }, dots, el('span', { className: 'visually-hidden' }, `${stage.STEPS[s.step]}: `), el('span', { className: 'words' }, s.words));
+    row.dataset.sig = sig;
+    return row;
+  });
+  // The same rows in the same order stay where they are: a node that leaves the page and comes back starts its pulse again.
+  if (next.length !== trackBox.children.length || next.some((row, i) => row !== trackBox.children[i])) trackBox.replaceChildren(...next);
+  trackBox.hidden = !tracks.length;
+}
+function track(sent) {
+  const t = stage?.trackOf(sent);
+  if (!t) return;
+  tracks = [...tracks.filter((x) => x.id !== t.id), t].slice(-3);
+  renderTracks();
+  loadAgents();
+}
+// Each second while a memo is tracked: the words for now (the seconds to the next question of the agent), and the
+// agents again each 3 seconds.
+let trackPolled = 0;
+setInterval(() => {
+  if (!stage || !tracks.length || document.visibilityState !== 'visible') return;
+  if (Date.now() - trackPolled >= stage.FAST_POLL_MS) { trackPolled = Date.now(); loadAgents(); } else renderTracks();
+}, 1000);
+
+// The agent of the capture form follows the agents with each poll (memos 980, 982 and 1047): pickAgent in
+// ui/agentstate.js, with the text of the task, so a task that needs Fable goes to the account with the most Fable
+// headroom. An agent that the owner picks by hand stays until that task goes out; then the choice is automatic again.
+// The select shows the name, so a screen reader hears it with the label; the hint is the rule, or the reason when
+// every agent is at its limit.
+let handPicked = false;
+capture.elements.to.addEventListener('change', () => { handPicked = true; chooseAgent(); });
+function chooseAgent() {
+  const long = agents.filter((a) => a.kind !== 'short');
+  const to = capture.elements.to;
+  const was = to.value;
+  const picked = pickAgent(agents, { task: capture.elements.text.value });
+  handPicked = handPicked && long.some((a) => a.name === was);
+  const pick = handPicked ? was : picked.name;
+  to.replaceChildren(...(!pick ? [el('option', { value: '', selected: true }, 'Automatic routing unavailable')] : []), ...long.map((a) => el('option', { value: a.name, selected: a.name === pick }, displayName(a.name))));
+  to.title = handPicked ? '' : picked.hint;
+  const hint = document.getElementById('routing-hint');
+  hint.textContent = picked.hint;
+  hint.hidden = handPicked || Boolean(picked.name);
+  to.hidden = long.length < 2;
+}
+async function loadAgents() {
+  try {
+    const asked = Date.now();
+    agents = await api('/api/agents');
+    agentsAt = asked;
+    chooseAgent();
+    showPick();
+    renderAgents();
+    renderTracks();
+  } catch (error) { note(error.message); }
+}
+// A code typed in the task (OPS or FUND), or plain words for deep work or code, can change the pick before the next poll.
+capture.elements.text.addEventListener('input', () => { if (!handPicked && agents.length) chooseAgent(); });
+// The Send button is off while a memo goes out, so a second Enter or a second click does not send the text again.
+const sendButton = capture.querySelector('button');
+capture.addEventListener('submit', (event) => {
+  event.preventDefault();
+  chooseAgent();
+  const to = handPicked ? capture.elements.to.value : 'auto';
+  if (!capture.elements.to.value) return note(pickAgent(agents, { task: capture.elements.text.value }).hint);
+  send(sendButton, async () => {
+    // A Fable task when Fable is short on every account gets one line more, so the agent holds the deep part.
+    const short = fableShortNote(agents, { task: capture.elements.text.value });
+    track(await api('/api/send', { from: '__OWNER__', to, text: short ? `${capture.elements.text.value}\n\n${short}` : capture.elements.text.value }));
+    handPicked = false;
+    // The server has the memo: the field is empty at the moment that the check mark shows.
+    capture.elements.text.value = '';
+    capture.elements.text.dispatchEvent(new Event('input'));
+  });
+});
+// The capture field grows with its text, to 40% of the window height.
+function grow() {
+  const field = capture.elements.text;
+  field.style.height = 'auto';
+  field.style.height = `${fieldHeight(field.scrollHeight + field.offsetHeight - field.clientHeight, window.innerHeight * 0.4)}px`;
+}
+capture.elements.text.addEventListener('input', grow);
+attach(capture.elements.text, capture.querySelector('.thumbs'), (busy) => { sendButton.disabled = busy; });
+capture.elements.text.addEventListener('keydown', (event) => {
+  if (!enterSends(event, matchMedia('(pointer: coarse)').matches)) return;
+  event.preventDefault();
+  capture.requestSubmit();
+});
+
+// A check box keeps the focus after a click. It is not a field with text, so the keys and the refresh continue.
+const typing = () => {
+  const at = document.activeElement;
+  return ['TEXTAREA', 'INPUT', 'SELECT'].includes(at?.tagName) && at.type !== 'checkbox';
+};
+document.addEventListener('keydown', (event) => {
+  if (event.metaKey || event.ctrlKey || event.altKey) return;
+  // Escape leaves the field she types in, so the other keys work again.
+  if (typing()) { if (event.key === 'Escape') document.activeElement.blur(); return; }
+  if (event.key === 'w') return setFilter(filter === 'work' ? 'all' : 'work');
+  // 1 to 9: the tab at that place, counted from the left.
+  if (/^[1-9]$/.test(event.key)) {
+    const choice = filterChoices(memos, filter)[Number(event.key) - 1];
+    if (choice) setFilter(choice[0]);
+    return;
+  }
+  if (event.key === 'a') return setAnswered(!answeredMode);
+  if (event.key === '/') { event.preventDefault(); capture.elements.text.focus(); return; }
+  if (answeredMode) {
+    // The Answered view is read only: j and k select a row, o opens or closes it.
+    if (event.key === 'j' || event.key === 'k') {
+      selectAnswered(step(answered, answeredSelected, event.key === 'j' ? 1 : -1));
+      answeredNode(answeredSelected)?.scrollIntoView({ behavior: 'instant', block: 'nearest' });
+    } else if (event.key === 'o' && answeredSelected !== null) toggleAnswered(answeredSelected);
+    return;
+  }
+  if (event.key === 'c') { if (openId !== null) toggleOpen(openId); return; }
+  const list = shown();
+  if (!list.length) return;
+  if (event.key === 'j' || event.key === 'k') {
+    // The keys move through the memos that the list shows. The page follows the selection with no animation.
+    select(step(list, selected, event.key === 'j' ? 1 : -1));
+    nodeOf(selected)?.scrollIntoView({ behavior: 'instant', block: 'nearest' });
+  } else if (event.key === '+' || event.key === '=') adjust(selected, 1);
+  // Some keyboards and input tools report the minus key with a different character, so the physical key counts too.
+  else if (event.key === '-' || event.key === '_' || event.key === '−' || event.code === 'Minus' || event.code === 'NumpadSubtract') adjust(selected, -1);
+  else if (event.key === 'o') toggleOpen(selected);
+  // r: the reply field of the selected memo, which opens first when it is closed.
+  else if (event.key === 'r') {
+    if (openId !== selected) toggleOpen(selected);
+    const area = nodeOf(selected)?.querySelector('textarea');
+    if (area) { event.preventDefault(); area.focus(); }
+  }
+});
+
+renderHero();
+// The countdowns of the usage lines tick each minute between polls (ui/usage.js).
+startCountdowns(document);
+tokenForm(() => { load(); loadAgents(); loadCalendar(); loadCalendars(); sendZone(); });
+load();
+loadAgents();
+renderCalendar();
+loadCalendar();
+loadCalendars();
+sendZone();
+// A new list replaces the reply fields, so the page does not load the list while the owner types in it.
+// The capture field at the top is not in the list, so the list still refreshes while the owner types there.
+// The drafts come more often, and also while she types, so a draft from the other device reaches the open memo
+// (pollDrafts). On the GitHub copy both are the same read of the repository, each 15 seconds.
+const POLL_MS = 15000;
+let polled = Date.now();
+setInterval(() => {
+  const free = !typing() || capture.contains(document.activeElement);
+  if (free && Date.now() - polled >= POLL_MS - DRAFT_POLL / 2) { polled = Date.now(); load(); loadAgents(); } else if (openId !== null) pollDrafts();
+}, DRAFT_POLL);
+// The list, the agents and the calendar now, outside the clock: the Refresh button in the header, and the moment the
+// page comes to the front again (the tab on the computer; the app or the tab on a phone, where the clocks of a page
+// in the background stand still, so the list could be minutes old, and a reply field can keep the focus). A reply
+// field she typed in during the last seconds holds the list as it is (busy); the next poll comes soon.
+function refresh() {
+  if (openId !== null && busy(String(openId))) return Promise.resolve();
+  polled = Date.now();
+  return Promise.all([load(), loadAgents(), loadCalendar()]);
+}
+document.getElementById('refresh').addEventListener('click', (event) => { withFeedback(event.currentTarget, refresh).catch((error) => note(error.message)); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refresh(); });
+addEventListener('pageshow', (event) => { if (event.persisted) refresh(); });
+</script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+# Your own patterns for app/scripts/pre-push-scan.sh and scripts/scan.sh: one extended regular expression in each line.
+# The scan stops a push that would publish a line that matches. Add more: names of people, host names, account ids.
+[YOUR_NAME]
+[YOUR_EMAIL]
+[YOUR_WORK_DOMAIN]
+[TAILSCALE_HOST]
+[MAC_USERNAME]@

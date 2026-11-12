@@ -1,0 +1,100 @@
+# Variables
+
+Every placeholder of the kit, in one list. This file is made from `variables.json` by `npm run setup -- --docs`; change that file, not this one.
+
+**How to read a placeholder.** A name in capitals in square brackets, for example `[YOUR_NAME]`, stands for a value that only you know. `npm run setup` asks you for each one and fills it in everywhere. You do not edit the files by hand.
+
+- **Required**: setup asks until it has a value (most have a default; press Return to take it).
+- **Optional**: press Return to skip it. The placeholder then stays in the files in capitals, setup lists it at its end, and an agent that meets it asks you once by memo.
+- Run `npm run setup` again at any time to change an answer.
+
+A second kind of marker is not a placeholder: words in curly brackets, for example `{Name}` or `{one line}` in the vault templates, are slots that the agents fill in for each person, meeting or project. Setup leaves them alone.
+
+Count: 42 variables, 26 required, 15 optional, 1 made by setup.
+
+## You
+
+| Placeholder | What it means | Example | Required | Default | Used in |
+|---|---|---|---|---|---|
+| `[YOUR_NAME]` | Your full name, as the agents should write it. | Sam Rivera | required | none | `app/.env.example`, `templates/local/charters/team.md`, `templates/local/scan-patterns.txt`, `vault-template/CLAUDE.md`, `vault-template/README.md`, `vault-template/skills/agent/signable-docs/SKILL.md`, `README.md` |
+| `[YOUR_FIRST_NAME]` | The name the agents call you in charters, playbooks and skills. | Sam | required | first word of YOUR_NAME | `templates/local/charters/team.md`, `vault-template/CLAUDE.md`, `vault-template/README.md`, `vault-template/drafts/_README.md`, `vault-template/email/_template.md`, `vault-template/me/goals.md`, `vault-template/me/key-links.md`, `vault-template/me/writing-voice.md`, `vault-template/people/_index.md`, `vault-template/people/_settled.md`, `vault-template/people/_team.md`, `vault-template/people/_template.md`, `vault-template/people/_to-cover.md`, `vault-template/projects/_index.md`, `vault-template/projects/example-project/overview.md`, `vault-template/scripts/daily-review.md`, `vault-template/scripts/lessons.md`, `vault-template/scripts/meeting-followups.md`, `vault-template/scripts/nightly-sync.md`, `vault-template/scripts/slack-channels.md`, `vault-template/scripts/sync-state.md`, `vault-template/skills/README.md`, `vault-template/skills/agent/check-work/SKILL.md`, `vault-template/skills/agent/email-reply-drafts/SKILL.md`, `vault-template/skills/agent/inbox-cleanup/SKILL.md`, `vault-template/skills/agent/model-trial/SKILL.md`, `vault-template/skills/agent/signable-docs/SKILL.md`, `vault-template/skills/agent/skill-audit/SKILL.md`, `vault-template/skills/agent/slack-announcement/SKILL.md`, `vault-template/skills/agent/slack-message-drafts/SKILL.md`, `vault-template/skills/my-writing-voice/SKILL.md`, `vault-template/writing/_index.md` |
+| `[MEMO_OWNER]` | Your short name in Memo commands: `memo send --to sam`. Small letters, digits and hyphens only; it must start with a letter. | sam | required | YOUR_FIRST_NAME in small letters | `app/.env.example`, `templates/local/charters/team.md`, `vault-template/scripts/daily-review.md`, `vault-template/scripts/nightly-sync.md` |
+| `[YOUR_ORG]` | The organisation or business your work is for. For personal use only, write: my own projects. | Example Org | required | none | `templates/local/charters/team.md`, `templates/local/workstreams.json`, `vault-template/CLAUDE.md`, `vault-template/funders/_template.md`, `vault-template/me/key-links.md`, `vault-template/people/_team.md`, `vault-template/people/_template.md`, `vault-template/projects/_index.md`, `vault-template/scripts/daily-review.md`, `vault-template/scripts/nightly-sync.md`, `vault-template/skills/agent/inbox-cleanup/SKILL.md`, `vault-template/skills/agent/signable-docs/SKILL.md`, `vault-template/skills/agent/slack-announcement/SKILL.md` |
+| `[YOUR_ROLE]` | Your role there, in a few words. | Executive Director | optional | none | `templates/local/charters/team.md`, `vault-template/CLAUDE.md`, `vault-template/skills/agent/signable-docs/SKILL.md` |
+| `[YOUR_EMAIL]` | Your work email address: the mailbox the agents read and draft in. | sam@example.org | required | none | `templates/local/scan-patterns.txt`, `vault-template/email/_template.md`, `vault-template/skills/agent/email-reply-drafts/SKILL.md`, `vault-template/skills/agent/inbox-cleanup/SKILL.md` |
+| `[YOUR_WORK_DOMAIN]` | The part of your work email after the @. Only a calendar on this domain gives meeting follow-ups, so a personal calendar gives none. | example.org | required | the domain of YOUR_EMAIL | `app/.env.example`, `templates/local/scan-patterns.txt`, `vault-template/scripts/meeting-followups.md`, `README.md` |
+| `[YOUR_TIMEZONE]` | Your time zone, as an IANA name. | America/New_York | required | the time zone of this computer | `app/.env.example`, `vault-template/scripts/daily-review.md`, `vault-template/scripts/lessons.md`, `README.md` |
+| `[YOUR_CITY]` | The place whose sunrise and sunset turn the pages light and dark. A city name, for the tooltip of the Theme button. Skip it and the pages follow Greenwich; the Theme button still holds light or dark. | Lisbon | optional | none | `templates/local/place.js` |
+| `[YOUR_LATITUDE]` | The latitude of that place, in degrees, north positive. Search the web for: latitude longitude <your city>. | 38.72 | optional | none | `templates/local/place.js` |
+| `[YOUR_LONGITUDE]` | The longitude of that place, in degrees, east positive (so the Americas are negative). | -9.14 | optional | none | `templates/local/place.js` |
+| `[WRITING_STYLE_NOTES]` | How you want text written for you to read, in one line. The agents follow it in every memo. | Short sentences. The point first. No jargon. | required | Short sentences. The point first, then the reason. Plain words. | `templates/local/charters/team.md`, `vault-template/CLAUDE.md` |
+
+## The computer that runs Memo
+
+| Placeholder | What it means | Example | Required | Default | Used in |
+|---|---|---|---|---|---|
+| `[MAC_USERNAME]` | The account name of your user on the Mac that runs Memo (the name of your home folder). In Terminal on that Mac, the command whoami prints it. | sam | required | the user that runs setup | `templates/local/scan-patterns.txt`, `vault-template/README.md`, `README.md` |
+| `[MEMO_APP_PATH]` | The full path of the app folder of this kit on that Mac. Setup finds it; change it only if you will move the kit. | /Users/Shared/memo-starter/app | required | the app folder of this kit | `templates/local/charters/team.md`, `vault-template/scripts/nightly-sync.md`, `templates/launchd/memo.daily-review.plist`, `templates/launchd/memo.nightly-restart.plist`, `templates/launchd/memo.server.plist`, `templates/launchd/memo.vault-sync.plist`, `app/docs/gpt-desktop.md` |
+| `[VAULT_PATH]` | The folder of your vault: the notes that the agents keep about your meetings, mail, people and projects. Setup creates it from vault-template/. | ~/memo-vault | required | ~/memo-vault | `app/.env.example`, `templates/local/agent-settings.json`, `templates/local/charters/team.md`, `vault-template/CLAUDE.md`, `vault-template/README.md`, `templates/launchd/memo.daily-review.plist`, `templates/launchd/memo.vault-sync.plist`, `README.md` |
+| `[AGENT_WORK_DIR]` | The folder the agents start in, for their scratch files. Setup creates it. | ~/memo-work | required | ~/memo-work | `templates/local/agents.json`, `templates/local/charters/team.md`, `vault-template/skills/README.md`, `README.md` |
+| `[OUTBOX_PATH]` | The folder where an agent puts a file that you must open yourself (a PDF, a spreadsheet, a page). Setup creates it. | ~/Memo Outbox | required | ~/Memo Outbox | `templates/local/agent-settings.json`, `templates/local/charters/team.md`, `vault-template/scripts/lessons.md`, `README.md` |
+
+## Tailscale (phone and remote access)
+
+| Placeholder | What it means | Example | Required | Default | Used in |
+|---|---|---|---|---|---|
+| `[TAILSCALE_HOST]` | The full Tailscale name of the Mac that runs Memo. In the Tailscale admin console, on the Machines page, click the Mac: the name ends in .ts.net. Skip it until Tailscale is installed (README step 8), then run setup again. | mac-mini.tail1a2b3c.ts.net | optional | none | `app/.env.example`, `templates/local/scan-patterns.txt`, `README.md` |
+| `[TAILSCALE_LOGIN]` | The login name of your Tailscale account: the email address or name at the top right of the Tailscale admin console. Only this login opens Memo with no token. | sam@example.org | optional | none | `app/.env.example`, `README.md` |
+| `[NTFY_TOPIC]` | A long random name for phone alerts through the ntfy app, when an agent is blocked. Anyone who knows the name can read the alerts, so make it hard to guess. Skip it for no alerts. | memo-alerts-8f3k2n9x4q7w | optional | none | `app/.env.example`, `README.md` |
+
+## Claude accounts and agents
+
+| Placeholder | What it means | Example | Required | Default | Used in |
+|---|---|---|---|---|---|
+| `[MAIN_AGENT_MODEL]` | The model of the agent main: a Claude Code model alias (opus, sonnet) or a full model id. | opus | required | opus | `templates/local/agents.json` |
+| `[SECOND_AGENT_MODEL]` | The model of the agent second. | opus | required | opus | `templates/local/agents.json` |
+| `[HELPER_MODEL]` | The default model alias for the helpers (subagents) that read sources and write summaries. A cheaper tier keeps your usage limits for the hard work. | sonnet | required | sonnet | `templates/local/charters/team.md`, `vault-template/scripts/lessons.md`, `vault-template/scripts/nightly-sync.md`, `vault-template/skills/README.md`, `vault-template/skills/agent/skill-audit/SKILL.md` |
+| `[FIRST_CLAUDE_ACCOUNT_EMAIL]` | The email address of your first Claude account, which runs the agent main. | sam@example.org | required | YOUR_EMAIL | `templates/local/charters/team.md`, `vault-template/CLAUDE.md`, `README.md` |
+| `[SECOND_CLAUDE_ACCOUNT_EMAIL]` | The email address of your second Claude account, which runs the agent second. Skip it if you have one account: both agents then share it and its limits. | sam+agent@example.org | optional | none | `templates/local/charters/team.md`, `vault-template/CLAUDE.md`, `README.md` |
+| `[SECOND_CLAUDE_CONFIG_DIR]` | The folder where Claude Code keeps the sign-in of the second account. With one account only, answer ~/.claude. | ~/.claude-second | required | ~/.claude-second | `templates/local/agents.json`, `templates/local/charters/team.md`, `vault-template/scripts/daily-review.md`, `README.md` |
+
+## GitHub backup of the vault
+
+| Placeholder | What it means | Example | Required | Default | Used in |
+|---|---|---|---|---|---|
+| `[GITHUB_USERNAME]` | Your GitHub user name, for the private backup of the vault. Skip it for no backup; the nightly sync then commits on the Mac only. | sam-rivera | optional | none | `README.md` |
+| `[VAULT_GITHUB_REPO]` | The private GitHub repository that backs up the vault, as user/name. | sam-rivera/memo-vault | optional | GITHUB_USERNAME/memo-vault | `vault-template/CLAUDE.md`, `vault-template/README.md`, `vault-template/scripts/nightly-sync.md`, `README.md` |
+
+## Your tools
+
+| Placeholder | What it means | Example | Required | Default | Used in |
+|---|---|---|---|---|---|
+| `[TASK_MANAGER]` | The tool that holds your tasks and is the source of truth for them. It needs a connector on your Claude account. | Asana | required | Asana | `templates/local/charters/team.md`, `vault-template/CLAUDE.md`, `vault-template/asana/tasks.md`, `vault-template/funders/_template.md`, `vault-template/people/_template.md`, `vault-template/people/_to-cover.md`, `vault-template/projects/_index.md`, `vault-template/projects/example-project/overview.md`, `vault-template/scripts/daily-review.md`, `vault-template/scripts/lessons.md`, `vault-template/scripts/meeting-followups.md`, `vault-template/scripts/nightly-sync.md`, `README.md` |
+| `[MEETING_NOTES_TOOL]` | The tool that records your meetings and gives notes and transcripts. It needs a connector on your Claude account. | Granola | required | Granola | `templates/local/charters/team.md`, `vault-template/meetings/_template.md`, `vault-template/scripts/meeting-followups.md`, `vault-template/scripts/nightly-sync.md`, `README.md` |
+| `[CHAT_TOOL]` | The chat tool of your team. | Slack | required | Slack | `templates/local/charters/team.md`, `vault-template/docs/slack/_template.md`, `vault-template/scripts/nightly-sync.md`, `vault-template/skills/agent/slack-message-drafts/SKILL.md` |
+| `[SLACK_CHANNELS_TO_SYNC]` | The team channels whose every message the nightly sync saves, with commas between them. Your direct messages and your own threads are saved anyway. | #team-internal, #ops | optional | none | `vault-template/scripts/slack-channels.md` |
+| `[SYNC_START_DATE]` | How far back the first nightly sync reads your meetings, mail, chat and documents, as YYYY-MM-DD. Later runs go further back when they have room. | 2026-01-01 | required | 30 days before today | `templates/local/schedule.json`, `vault-template/README.md`, `vault-template/asana/tasks.md`, `vault-template/docs/_index.md`, `vault-template/drafts/_README.md`, `vault-template/email/_correspondents.md`, `vault-template/inbox/_README.md`, `vault-template/me/goals.md`, `vault-template/me/key-links.md`, `vault-template/me/writing-voice.md`, `vault-template/meetings/_index.md`, `vault-template/people/_index.md`, `vault-template/people/_merged/merges.md`, `vault-template/people/_settled.md`, `vault-template/people/_team.md`, `vault-template/people/_to-cover.md`, `vault-template/projects/_index.md`, `vault-template/projects/example-project/overview.md`, `vault-template/raw/_README.md`, `vault-template/scripts/daily-review.md`, `vault-template/scripts/lessons.md`, `vault-template/scripts/meeting-followups.md`, `vault-template/scripts/nightly-sync.md`, `vault-template/scripts/slack-channels.md`, `vault-template/scripts/sync-log.md`, `vault-template/scripts/sync-state.md`, `vault-template/skills/README.md`, `vault-template/skills/agent/check-work/SKILL.md`, `vault-template/skills/agent/email-reply-drafts/SKILL.md`, `vault-template/skills/agent/inbox-cleanup/SKILL.md`, `vault-template/skills/agent/model-trial/SKILL.md`, `vault-template/skills/agent/signable-docs/SKILL.md`, `vault-template/skills/agent/skill-audit/SKILL.md`, `vault-template/skills/agent/slack-announcement/SKILL.md`, `vault-template/skills/agent/slack-message-drafts/SKILL.md`, `vault-template/skills/model-trials.md`, `vault-template/summaries/_README.md`, `vault-template/writing/_index.md`, `README.md` |
+
+## Where things go
+
+| Placeholder | What it means | Example | Required | Default | Used in |
+|---|---|---|---|---|---|
+| `[WHERE_TO_SEND_DRAFTS]` | Where an agent leaves a draft for you to review and send. The safe default: a draft inside the tool itself, plus a memo with the full text. | a draft in the tool it will be sent from (a Gmail draft, a Slack draft), plus a memo with the full text and the link | required | a draft in the tool it will be sent from (a Gmail draft, a Slack draft), plus a memo with the full text and the link | `templates/local/charters/team.md`, `vault-template/drafts/_README.md`, `vault-template/scripts/lessons.md`, `vault-template/scripts/meeting-followups.md`, `vault-template/skills/agent/email-reply-drafts/SKILL.md`, `vault-template/skills/agent/slack-announcement/SKILL.md`, `vault-template/skills/agent/slack-message-drafts/SKILL.md` |
+| `[WHERE_TO_SEND_FOLLOWUPS]` | Where meeting follow-ups go by default, when the routing list of the playbook has no row for the meeting. | a Slack direct message to the person for a teammate, an email for anyone outside the team | required | a Slack direct message to the person for a teammate, an email for anyone outside the team | `vault-template/scripts/meeting-followups.md` |
+| `[SLACK_CHANNEL_FOR_ANNOUNCEMENTS]` | The channel for announcements to your whole community or company (the example skill slack-announcement uses it). Skip it if you post none. | #announcements | optional | none | `vault-template/skills/README.md`, `vault-template/skills/agent/slack-announcement/SKILL.md` |
+| `[SLACK_CHANNEL_FOR_TEAM_UPDATES]` | The internal channel of your team, for updates and for the follow-up of a team meeting. | #team-internal | optional | none | `vault-template/scripts/daily-review.md`, `vault-template/scripts/meeting-followups.md`, `vault-template/scripts/slack-channels.md`, `vault-template/skills/agent/slack-message-drafts/SKILL.md` |
+| `[SIGNED_DOCS_FOLDER]` | The Google Drive folder where documents to sign, and their signed copies, live. | Shared drive Operations, folder Agreements | optional | none | `vault-template/me/key-links.md`, `vault-template/skills/agent/signable-docs/SKILL.md` |
+| `[BOOKING_LINK]` | Your scheduling link, which agents put in a reply that proposes a call. | https://cal.example.org/sam | optional | none | `templates/local/charters/team.md`, `vault-template/CLAUDE.md`, `vault-template/me/key-links.md`, `vault-template/skills/agent/email-reply-drafts/SKILL.md` |
+
+## The schedule
+
+| Placeholder | What it means | Example | Required | Default | Used in |
+|---|---|---|---|---|---|
+| `[NIGHTLY_SYNC_HOUR]` | The hour (0 to 23, by the clock of the Mac that runs Memo) at which the agents restart; the nightly sync starts 30 minutes later. Pick an hour when you sleep. | 3 | required | 3 | `templates/local/schedule.json`, `vault-template/scripts/nightly-sync.md`, `templates/launchd/memo.nightly-restart.plist`, `templates/launchd/memo.vault-sync.plist`, `README.md` |
+| `[DAILY_REVIEW_HOUR]` | The hour (0 to 23, by the clock of the Mac that runs Memo) at which the daily review memo arrives, Monday to Friday. | 8 | required | 8 | `templates/local/schedule.json`, `vault-template/scripts/daily-review.md`, `templates/launchd/memo.daily-review.plist`, `README.md` |
+
+## Made by setup
+
+| Placeholder | What it means | Example | Required | Default | Used in |
+|---|---|---|---|---|---|
+| `[MEMO_TOKEN]` | The secret token of Memo. Setup makes a random one, writes it only into app/.env, and never shows it. You are not asked for it. | (43 random characters) | made by setup | none | `app/.env.example` |
